@@ -38,7 +38,10 @@ func subscriptionStatusSuccess(requestId string, m interface{}) (bool, error) {
 	}
 
 	if result["status"].(string) != "successfull" {
-		return false, nil
+		if result["status"].(string) == "pending" {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to create Azure subscription: %s", result["message"].(string))
 	}
 
 	return true, nil

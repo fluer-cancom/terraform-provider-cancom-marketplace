@@ -27,7 +27,13 @@ func Provider() *schema.Provider {
 				Required:    false,
 				Optional:    true,
 				Description: "The API endpoint for the Cancom Marketplace",
-				Default:     "https://marketplace-ip.cancom.de",
+				Default:     "https://cc-marketplace-ip.azure-api.net",
+			},
+			"country": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Optional:    false,
+				Description: "The country of the customer",
 			},
 		},
 	}

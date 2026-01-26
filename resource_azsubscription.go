@@ -45,6 +45,13 @@ func resourceAzSubscription() *schema.Resource {
 				Default:     "DE",
 				Description: "The country of the customer.",
 			},
+			"subscriptionId": {
+				Type:        schema.TypeString,
+				Required:    false,
+				Optional:    false,
+				Computed:    true,
+				Description: "The subscription ID of the Azure subscription.",
+			},
 		},
 	}
 }
@@ -54,8 +61,8 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	parameters := map[string]interface{}{
 		"orderNumber":   d.Get("orderNumber").(string),
 		"azureDiscount": d.Get("azureDiscount").(int),
-		"objectId":      d.Get("azureOwnerObjectId").(string),
-		"country":       d.Get("country").(string),
+		"azureObjectId": d.Get("azureOwnerObjectId").(string),
+		"country":       m.(map[string]interface{})["country"].(string),
 	}
 
 	httpClient := &http.Client{
@@ -70,7 +77,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	q := req.URL.Query()
 	q.Add("orderNumber", parameters["orderNumber"].(string))
 	q.Add("azureDiscount", fmt.Sprintf("%d", parameters["azureDiscount"].(int)))
-	q.Add("objectId", parameters["objectId"].(string))
+	q.Add("azureObjectId", parameters["azureObjectId"].(string))
 	q.Add("country", parameters["country"].(string))
 	req.URL.RawQuery = q.Encode()
 
@@ -118,6 +125,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	d.Set("orderNumber", subscriptionInfo["orderNumber"])
 	d.Set("azureDiscount", subscriptionInfo["azureDiscount"])
 	d.Set("azureOwnerObjectId", subscriptionInfo["objectId"])
+	d.Set("subscriptionId", subscriptionInfo["subscriptionId"])
 
 	return nil
 }

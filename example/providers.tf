@@ -3,7 +3,8 @@ terraform {
 }
 
 provider "cancommarketplace" {
-  endpoint     = "https://api.cancommarketplace.com"
+  endpoint     = "https://cc-marketplace-ip.azure-api.net"
   api_username = "test_user"
   api_password = "test_api_password"
+  country      = "AT"
 }
