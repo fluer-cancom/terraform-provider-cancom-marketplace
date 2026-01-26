@@ -7,7 +7,7 @@ import (
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		ResourcesMap: map[string]*schema.Resource{
-			"az_subscription": resourceAzSubscription(),
+			"cancom-marketplace_az_subscription": resourceAzSubscription(),
 		},
 		Schema: map[string]*schema.Schema{
 			"api_username": {
@@ -36,5 +36,22 @@ func Provider() *schema.Provider {
 				Description: "The country of the customer",
 			},
 		},
+		ConfigureFunc: providerConfigure,
 	}
+}
+
+type Config struct {
+	Endpoint string
+	Username string
+	Password string
+	Country  string
+}
+
+func providerConfigure(d *schema.ResourceData) (interface{}, error) {
+	return &Config{
+		Endpoint: d.Get("endpoint").(string),
+		Username: d.Get("api_username").(string),
+		Password: d.Get("api_password").(string),
+		Country:  d.Get("country").(string),
+	}, nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,9 +9,9 @@ import (
 	"time"
 )
 
-func subscriptionStatusSuccess(requestId string, m interface{}) (bool, error) {
+func subscriptionStatusSuccess(requestId string, m *Config) (bool, error) {
 	// Use requestId to check status of the subscription creation
-	uri_status := fmt.Sprintf("%s/azure-api-gateway/v1/subscriptionStatus?requestId=%s", m.(map[string]interface{})["endpoint"].(string), requestId)
+	uri_status := fmt.Sprintf("%s/azure-api-gateway/v1/subscriptionStatus?requestId=%s&country=%s", m.Endpoint, requestId, m.Country)
 	httpClient := &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -19,13 +20,13 @@ func subscriptionStatusSuccess(requestId string, m interface{}) (bool, error) {
 		return false, err
 	}
 	req_status.Header.Set("Content-Type", "application/json")
-	req_status.Header.Set("Authorization", fmt.Sprintf("Basic %s", m.(map[string]interface{})["api_username"].(string)+":"+m.(map[string]interface{})["api_password"].(string)))
+	req_status.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password))))
 	resp_status, err := httpClient.Do(req_status)
 	if err != nil {
 		return false, err
 	}
 	defer resp_status.Body.Close()
-	if resp_status.StatusCode != http.StatusAccepted {
+	if resp_status.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("failed to get Azure subscription status: %s", resp_status.Status)
 	}
 	body, err := io.ReadAll(resp_status.Body)
@@ -47,9 +48,9 @@ func subscriptionStatusSuccess(requestId string, m interface{}) (bool, error) {
 	return true, nil
 }
 
-func subscriptionInfo(requestId string, m interface{}) (map[string]interface{}, error) {
+func subscriptionInfo(requestId string, m *Config) (map[string]interface{}, error) {
 	// Use requestId to get info of the subscription creation
-	uri_info := fmt.Sprintf("%s/azure-api-gateway/v1/subscriptionStatus?requestId=%s", m.(map[string]interface{})["endpoint"].(string), requestId)
+	uri_info := fmt.Sprintf("%s/azure-api-gateway/v1/subscriptionStatus?requestId=%s&country=%s", m.Endpoint, requestId, m.Country)
 	httpClient := &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -58,7 +59,7 @@ func subscriptionInfo(requestId string, m interface{}) (map[string]interface{}, 
 		return nil, err
 	}
 	req_info.Header.Set("Content-Type", "application/json")
-	req_info.Header.Set("Authorization", fmt.Sprintf("Basic %s", m.(map[string]interface{})["api_username"].(string)+":"+m.(map[string]interface{})["api_password"].(string)))
+	req_info.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password))))
 	resp_info, err := httpClient.Do(req_info)
 	if err != nil {
 		return nil, err

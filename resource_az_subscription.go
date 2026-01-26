@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,35 +15,35 @@ func resourceAzSubscription() *schema.Resource {
 	return &schema.Resource{
 		Create:      resourceAzSubscriptionCreate,
 		Read:        resourceAzSubscriptionRead,
-		Update:      resourceAzSubscriptionUpdate,
+		Update:      nil,
 		Delete:      resourceAzSubscriptionDelete,
 		Description: "Manages an Azure Subscription within the Cancom Marketplace.",
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 		Schema: map[string]*schema.Schema{
-			"orderNumber": {
+			"order_number": {
 				Type:        schema.TypeString,
 				Required:    false,
 				Optional:    true,
 				Description: "The PO number of the subscription.",
 				ForceNew:    true,
 			},
-			"azureDiscount": {
+			"azure_discount": {
 				Type:        schema.TypeInt,
 				Required:    false,
 				Optional:    true,
 				Description: "The marketplace discount ID for the Azure Plan.",
 				ForceNew:    true,
 			},
-			"azureOwnerObjectId": {
+			"azure_owner_object_id": {
 				Type:        schema.TypeString,
 				Required:    true,
 				Optional:    false,
 				Description: "The object ID of the principal, which recieves owner permissions after subscription creation.",
 				ForceNew:    true,
 			},
-			"subscriptionId": {
+			"subscription_id": {
 				Type:        schema.TypeString,
 				Required:    false,
 				Optional:    false,
@@ -54,12 +55,13 @@ func resourceAzSubscription() *schema.Resource {
 }
 
 func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
-	uri := fmt.Sprintf("%s/azure-api-gateway/v1/createAzureSubscription", m.(map[string]interface{})["endpoint"].(string))
+	config := m.(*Config)
+	uri := fmt.Sprintf("%s/azure-api-gateway/v1/createAzureSubscription", config.Endpoint)
+	country := config.Country
 	parameters := map[string]interface{}{
-		"orderNumber":   d.Get("orderNumber").(string),
-		"azureDiscount": d.Get("azureDiscount").(int),
-		"azureObjectId": d.Get("azureOwnerObjectId").(string),
-		"country":       m.(map[string]interface{})["country"].(string),
+		"order_number":          d.Get("order_number").(string),
+		"azure_discount":        d.Get("azure_discount").(int),
+		"azure_owner_object_id": d.Get("azure_owner_object_id").(string),
 	}
 
 	httpClient := &http.Client{
@@ -70,12 +72,16 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", m.(map[string]interface{})["api_username"].(string)+":"+m.(map[string]interface{})["api_password"].(string)))
+	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(config.Username+":"+config.Password))))
 	q := req.URL.Query()
-	q.Add("orderNumber", parameters["orderNumber"].(string))
-	q.Add("azureDiscount", fmt.Sprintf("%d", parameters["azureDiscount"].(int)))
-	q.Add("azureObjectId", parameters["azureObjectId"].(string))
-	q.Add("country", parameters["country"].(string))
+	if parameters["order_number"].(string) != "" {
+		q.Add("orderNumber", parameters["order_number"].(string))
+	}
+	if parameters["azure_discount"].(int) != 0 {
+		q.Add("azureDiscount", fmt.Sprintf("%d", parameters["azure_discount"].(int)))
+	}
+	q.Add("azureObjectId", parameters["azure_owner_object_id"].(string))
+	q.Add("country", country)
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := httpClient.Do(req)
@@ -103,7 +109,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	// Wait for subscription to be created
 	for {
 		time.Sleep(5 * time.Second)
-		success, err := subscriptionStatusSuccess(requestId, m)
+		success, err := subscriptionStatusSuccess(requestId, config)
 		if err != nil {
 			return err
 		}
@@ -113,16 +119,16 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	// Get subscription info
-	subscriptionInfo, err := subscriptionInfo(requestId, m)
+	subscriptionInfo, err := subscriptionInfo(requestId, config)
 	if err != nil {
 		return err
 	}
 
 	// Set subscription info to resource data
-	d.Set("orderNumber", subscriptionInfo["orderNumber"])
-	d.Set("azureDiscount", subscriptionInfo["azureDiscount"])
-	d.Set("azureOwnerObjectId", subscriptionInfo["objectId"])
-	d.Set("subscriptionId", subscriptionInfo["subscriptionId"])
+	d.Set("order_number", subscriptionInfo["order_number"])
+	d.Set("azure_discount", subscriptionInfo["azure_discount"])
+	d.Set("azure_owner_object_id", subscriptionInfo["objectId"])
+	d.Set("subscription_id", subscriptionInfo["subscription_id"])
 
 	return nil
 }
@@ -130,10 +136,6 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 func resourceAzSubscriptionRead(d *schema.ResourceData, m interface{}) error {
 	// Returning nil tells Terraform that the resource exists and the state is valid.
 	// This effectively ignores any drift and ensures the properties in state are preserved.
-	return nil
-}
-
-func resourceAzSubscriptionUpdate(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
 

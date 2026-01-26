@@ -1,5 +1,8 @@
 resource "cancom-marketplace_az_subscription" "example" {
-  orderNumber        = "123456789"
-  azureOwnerObjectId = "12345678-1234-1234-1234-123456789012"
-  country            = "DE"
+  order_number          = "DEMOORDER"
+  azure_owner_object_id = "09c2203b-2ec2-4b55-a062-8378b32e65dd"
+}
+
+output "subscription_id" {
+  value = cancom-marketplace_az_subscription.example.subscription_id
 }
