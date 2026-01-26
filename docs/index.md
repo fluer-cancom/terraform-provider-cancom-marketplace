@@ -18,4 +18,4 @@ description: |-
 
 ### Optional
 
-- `endpoint` (String) The API endpoint for the Cancom Marketplace
+- `endpoint` (String) The API endpoint for the Cancom Marketplace. Default is `https://cc-marketplace-ip.azure-api.net`.
