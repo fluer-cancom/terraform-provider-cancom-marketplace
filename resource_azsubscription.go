@@ -14,8 +14,8 @@ func resourceAzSubscription() *schema.Resource {
 	return &schema.Resource{
 		Create:      resourceAzSubscriptionCreate,
 		Read:        resourceAzSubscriptionRead,
-		Update:      nil,
-		Delete:      nil,
+		Update:      resourceAzSubscriptionUpdate,
+		Delete:      resourceAzSubscriptionDelete,
 		Description: "Manages an Azure Subscription within the Cancom Marketplace.",
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
@@ -138,5 +138,13 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 func resourceAzSubscriptionRead(d *schema.ResourceData, m interface{}) error {
 	// Returning nil tells Terraform that the resource exists and the state is valid.
 	// This effectively ignores any drift and ensures the properties in state are preserved.
+	return nil
+}
+
+func resourceAzSubscriptionUpdate(d *schema.ResourceData, m interface{}) error {
+	return nil
+}
+
+func resourceAzSubscriptionDelete(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
