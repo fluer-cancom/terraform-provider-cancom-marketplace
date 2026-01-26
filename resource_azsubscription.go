@@ -42,14 +42,6 @@ func resourceAzSubscription() *schema.Resource {
 				Description: "The object ID of the principal, which recieves owner permissions after subscription creation.",
 				ForceNew:    true,
 			},
-			"country": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Optional:    false,
-				Default:     "DE",
-				Description: "The country of the customer.",
-				ForceNew:    true,
-			},
 			"subscriptionId": {
 				Type:        schema.TypeString,
 				Required:    false,
