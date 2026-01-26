@@ -1,6 +1,7 @@
 # Terraform Provider for Cancom Marketplace
 
 The Cancom Marketplace Terraform Provider allows you to manage Cancom Marketplace resources, specifically Azure subscriptions, via Terraform.
+For becoming a CSP customer, please contact us via https://marketplace.cancom.at (Austria) or https://marketplace.cancom.de (Germany).
 
 ## Requirements
 
@@ -45,7 +46,7 @@ To use the provider, you need to configure it with credentials. These are typica
 provider "cancommarketplace" {
   api_username = "your-api-username"
   api_password = "your-api-password"
-  country      = "DE" # or other ISO country code
+  country      = "DE" # or AT
   # endpoint   = "https://cc-marketplace-ip.azure-api.net" # Optional, defaults to production
 }
 ```
@@ -67,23 +68,21 @@ This resource allows you to create and manage Azure Subscriptions.
 
 ```hcl
 resource "az_subscription" "example" {
-  orderNumber        = "123456789"
-  azureOwnerObjectId = "00000000-0000-0000-0000-000000000000"
-  country            = "DE"
+  order_number        = "123456789"
+  azure_owner_object_id = "00000000-0000-0000-0000-000000000000"
   # azureDiscount    = 123 # Optional
 }
 ```
 
 #### Argument Reference
 
-*   `orderNumber` (String, Optional) The PO number of the subscription.
-*   `azureOwnerObjectId` (String, Required) The object ID of the principal (User, Service Principal, etc.) who will receive Owner permissions on the created subscription.
-*   `country` (String, Required) The country of the customer. Defaults to "DE".
-*   `azureDiscount` (Int, Optional) The marketplace discount ID for the Azure Plan.
+*   `order_number` (String, Optional) The PO number of the subscription.
+*   `azure_owner_object_id` (String, Required) The object ID of the principal (User, Service Principal, etc.) who will receive Owner permissions on the created subscription.
+*   `azure_discount` (Int, Optional) The marketplace discount ID for the Azure Plan.
 
 #### Attribute Reference
 
-*   `subscriptionId` (String) The ID of the created Azure subscription.
+*   `subscription_id` (String) The ID of the created Azure subscription.
 
 ## Development
 
@@ -96,13 +95,3 @@ To compile the provider, run `go build`. This will build the provider binary in 
 ```bash
 go build
 ```
-
-### Testing
-
-In order to test the provider, you can simply run `go test ./...`.
-
-```bash
-make test
-```
-
-(Note: You may need to create a `Makefile` or run `go test ./...` directly if no Makefile exists).
