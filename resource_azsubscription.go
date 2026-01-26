@@ -25,18 +25,21 @@ func resourceAzSubscription() *schema.Resource {
 				Required:    false,
 				Optional:    true,
 				Description: "The PO number of the subscription.",
+				ForceNew:    true,
 			},
 			"azureDiscount": {
 				Type:        schema.TypeInt,
 				Required:    false,
 				Optional:    true,
 				Description: "The marketplace discount ID for the Azure Plan.",
+				ForceNew:    true,
 			},
 			"azureOwnerObjectId": {
 				Type:        schema.TypeString,
 				Required:    true,
 				Optional:    false,
 				Description: "The object ID of the principal, which recieves owner permissions after subscription creation.",
+				ForceNew:    true,
 			},
 			"country": {
 				Type:        schema.TypeString,
@@ -44,6 +47,7 @@ func resourceAzSubscription() *schema.Resource {
 				Optional:    false,
 				Default:     "DE",
 				Description: "The country of the customer.",
+				ForceNew:    true,
 			},
 			"subscriptionId": {
 				Type:        schema.TypeString,
