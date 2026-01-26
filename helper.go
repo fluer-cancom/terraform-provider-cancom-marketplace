@@ -65,7 +65,7 @@ func subscriptionInfo(requestId string, m *Config) (map[string]interface{}, erro
 		return nil, err
 	}
 	defer resp_info.Body.Close()
-	if resp_info.StatusCode != http.StatusAccepted {
+	if resp_info.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get Azure subscription info: %s", resp_info.Status)
 	}
 	body, err := io.ReadAll(resp_info.Body)

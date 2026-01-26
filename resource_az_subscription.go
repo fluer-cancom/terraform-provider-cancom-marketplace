@@ -125,10 +125,19 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	// Set subscription info to resource data
-	d.Set("order_number", subscriptionInfo["order_number"])
-	d.Set("azure_discount", subscriptionInfo["azure_discount"])
-	d.Set("azure_owner_object_id", subscriptionInfo["objectId"])
-	d.Set("subscription_id", subscriptionInfo["subscription_id"])
+	if subscriptionInfo["orderNumber"] != nil {
+		d.Set("order_number", subscriptionInfo["orderNumber"])
+	}
+	if subscriptionInfo["azureDiscount"] != nil {
+		d.Set("azure_discount", subscriptionInfo["azureDiscount"])
+	}
+	if subscriptionInfo["objectId"] != nil {
+		d.Set("azure_owner_object_id", subscriptionInfo["objectId"])
+	}
+	if subscriptionInfo["subscriptionId"] != nil {
+		d.Set("subscription_id", subscriptionInfo["subscriptionId"])
+	}
+	d.SetId(subscriptionInfo["subscriptionId"].(string))
 
 	return nil
 }
