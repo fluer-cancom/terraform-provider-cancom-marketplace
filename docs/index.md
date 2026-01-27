@@ -19,3 +19,7 @@ description: |-
 ### Optional
 
 - `endpoint` (String) The API endpoint for the Cancom Marketplace. Default is `https://cc-marketplace-ip.azure-api.net`.
+- `azure_client_id` (String) The Azure client ID for the customers tenant.
+- `azure_client_secret` (String) The Azure client secret for the customers tenant.
+- `azure_tenant_id` (String) The Azure tenant ID for the customers tenant.
+> **Note:** If using `display_name`, the subscription will be renamed after creation by using the Azure API with the context of `az login` or by using the Service Principal configuration of the provider. Ensure that the principal used for `az login` or the Service Principal configuration of the provider has the necessary permissions to rename the subscription (either on management group level, or by assuring that the principal associated with `azure_owner_object_id` is used with the Azure CLI context).

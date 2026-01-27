@@ -2,7 +2,7 @@ terraform {
   required_providers {
     cancom-marketplace = {
       source  = "fluer-cancom-dev/cancom-marketplace"
-      version = "0.0.1"
+      version = "0.1.7"
     }
   }
 }

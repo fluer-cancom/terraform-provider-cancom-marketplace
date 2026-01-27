@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription"
 )
 
 func subscriptionStatusSuccess(requestId string, m *Config) (bool, error) {
@@ -78,4 +81,56 @@ func subscriptionInfo(requestId string, m *Config) (map[string]interface{}, erro
 	}
 
 	return result, nil
+}
+
+func subscriptionARMInfo(subscriptionId string, m *Config) (armsubscription.SubscriptionsClientGetResponse, error) {
+	// Get Subscription info from Azure
+	var subscription armsubscription.SubscriptionsClientGetResponse
+
+	if m.AzureAuthCtx == nil {
+		return subscription, fmt.Errorf("Cannot authenticate with Azure API. To get subscription info, please run 'az login' or provide Azure Client ID, Client Secret and Tenant ID and try again")
+	}
+	clientFactory, err := armsubscription.NewClientFactory(m.AzureAuthCtx, nil)
+	if err != nil {
+		return subscription, err
+	}
+	subscription, err = clientFactory.NewSubscriptionsClient().Get(context.Background(), subscriptionId, nil)
+	if err != nil {
+		return subscription, err
+	}
+	return subscription, nil
+}
+
+func renameSubscription(subscriptionId string, displayName string, m *Config) error {
+	// Use subscriptionId to rename the subscription
+	if m.AzureAuthCtx == nil {
+		return fmt.Errorf("Cannot authenticate with Azure API. To set display name, please run 'az login' or provide Azure Client ID, Client Secret and Tenant ID and try again")
+	}
+
+	clientFactory, err := armsubscription.NewClientFactory(m.AzureAuthCtx, nil)
+	if err != nil {
+		return err
+	}
+	_, err = clientFactory.NewClient().Rename(context.Background(), subscriptionId, armsubscription.Name{SubscriptionName: &displayName}, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func cancelSubscription(subscriptionId string, m *Config) error {
+	// Use subscriptionId to cancel the subscription
+	if m.AzureAuthCtx == nil {
+		return fmt.Errorf("Cannot authenticate with Azure API. To cancel subscription, please run 'az login' or provide Azure Client ID, Client Secret and Tenant ID and try again")
+	}
+
+	clientFactory, err := armsubscription.NewClientFactory(m.AzureAuthCtx, nil)
+	if err != nil {
+		return err
+	}
+	_, err = clientFactory.NewClient().Cancel(context.Background(), subscriptionId, nil)
+	if err != nil {
+		return err
+	}
+	return nil
 }
