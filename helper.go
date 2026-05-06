@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,83 +12,87 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription"
 )
 
-func subscriptionInfo(subscriptionId string, m *Config) (CSPSubscription, error) {
-	// Get Subscription info from Marketplace API
-	url := fmt.Sprintf("%s/v1/subscriptions/%s", m.Endpoint, subscriptionId)
-	httpClient := &http.Client{
-		Timeout: time.Second * 10,
+func newMarketplaceClient(timeout time.Duration, cfg *Config) *http.Client {
+	if cfg.HTTPClient != nil {
+		return cfg.HTTPClient
 	}
-	req, err := http.NewRequest("GET", url, nil)
+	return &http.Client{Timeout: timeout}
+}
 
+// subscriptionInfo fetches a subscription record from the marketplace API.
+func subscriptionInfo(subscriptionId string, m *Config) (CSPSubscription, error) {
+	url := fmt.Sprintf("%s/v1/subscriptions/%s", m.Endpoint, subscriptionId)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return CSPSubscription{}, fmt.Errorf("failed to build request for subscription info: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password)))) // #TODO: Auth needs to be changed to OAuth2 token based
-	resp, err := httpClient.Do(req)
+	req.Header.Set("Authorization", "Bearer "+m.CCMPApiToken)
+
+	resp, err := newMarketplaceClient(10*time.Second, m).Do(req)
 	if err != nil {
-		return CSPSubscription{}, fmt.Errorf("failed to get Azure subscription info: %v", err)
+		return CSPSubscription{}, fmt.Errorf("failed to get marketplace subscription info: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return CSPSubscription{}, fmt.Errorf("failed to get Azure subscription info: %s", resp.Status)
+		return CSPSubscription{}, fmt.Errorf("failed to get marketplace subscription info: %s", resp.Status)
 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return CSPSubscription{}, fmt.Errorf("failed to read Azure subscription info response: %v", err)
+		return CSPSubscription{}, fmt.Errorf("failed to read subscription info response: %w", err)
 	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(responseBody, &result); err != nil {
-		return CSPSubscription{}, fmt.Errorf("failed to parse Azure subscription info response: %v", err)
+	var envelope struct {
+		Data CSPSubscription `json:"data"`
 	}
-
-	CSPSubscriptionInfo := result["data"].(CSPSubscription)
-
-	return CSPSubscriptionInfo, nil
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return CSPSubscription{}, fmt.Errorf("failed to parse subscription info response: %w", err)
+	}
+	return envelope.Data, nil
 }
 
+// changeSubscription PUTs an updated subscription object back to the API.
+// Per the API spec the path has no {id} segment — the id lives in the body.
 func changeSubscription(subscriptionObject CSPSubscription, m *Config) error {
-	url := fmt.Sprintf("%s/v1/subscriptions/%s", m.Endpoint, subscriptionObject.SubscriptionId)
-	httpClient := &http.Client{
-		Timeout: time.Second * 10,
-	}
-	req, err := http.NewRequest("PUT", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request to rename Azure subscription: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password)))) // #TODO: Auth needs to be changed to OAuth2 token based
-	req.Header.Set("X-Correlation-ID", 106)
+	url := fmt.Sprintf("%s/v1/subscriptions", m.Endpoint)
 
 	requestBody, err := json.Marshal(subscriptionObject)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body to rename Azure subscription: %v", err)
+		return fmt.Errorf("failed to marshal subscription update body: %w", err)
 	}
-	req.Body = io.NopCloser(bytes.NewReader(requestBody))
 
-	resp, err := httpClient.Do(req)
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(requestBody))
 	if err != nil {
-		return fmt.Errorf("failed to send request to rename Azure subscription: %v", err)
+		return fmt.Errorf("failed to build request to update subscription: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+m.CCMPApiToken)
+	req.Header.Set("X-Correlation-ID", "106")
+
+	resp, err := newMarketplaceClient(10*time.Second, m).Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send subscription update: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to rename Azure subscription: %s", resp.Status)
+		return fmt.Errorf("failed to update subscription: %s", resp.Status)
 	}
 	return nil
 }
 
+// cancelSubscription cancels the underlying Azure subscription via ARM.
 func cancelSubscription(subscriptionId string, m *Config) error {
-	// Use subscriptionId to cancel the subscription
 	if m.AzureAuthCtx == nil {
-		return fmt.Errorf("Cannot authenticate with Azure API. To cancel subscription, please run 'az login' or provide Azure Client ID, Client Secret and Tenant ID and try again")
+		return fmt.Errorf("cannot authenticate with Azure API. To cancel subscription, run 'az login' or set azure_client_id/azure_client_secret/azure_tenant_id")
 	}
-
 	clientFactory, err := armsubscription.NewClientFactory(m.AzureAuthCtx, nil)
 	if err != nil {
 		return err
 	}
-	_, err = clientFactory.NewClient().Cancel(context.Background(), subscriptionId, nil)
-	if err != nil {
+	if _, err := clientFactory.NewClient().Cancel(context.Background(), subscriptionId, nil); err != nil {
 		return err
 	}
 	return nil
