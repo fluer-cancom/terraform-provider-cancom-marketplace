@@ -12,108 +12,67 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription"
 )
 
-func subscriptionStatusSuccess(requestId string, m *Config) (bool, error) {
-	// Use requestId to check status of the subscription creation
-	uri_status := fmt.Sprintf("%s/azure-api-gateway/v1/subscriptionStatus?requestId=%s&country=%s", m.Endpoint, requestId, m.Country)
+func subscriptionInfo(subscriptionId string, m *Config) (CSPSubscription, error) {
+	// Get Subscription info from Marketplace API
+	url := fmt.Sprintf("%s/v1/subscriptions/%s", m.Endpoint, subscriptionId)
 	httpClient := &http.Client{
 		Timeout: time.Second * 10,
 	}
-	req_status, err := http.NewRequest("GET", uri_status, nil)
+	req, err := http.NewRequest("GET", url, nil)
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password)))) // #TODO: Auth needs to be changed to OAuth2 token based
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return CSPSubscription{}, fmt.Errorf("failed to get Azure subscription info: %v", err)
 	}
-	req_status.Header.Set("Content-Type", "application/json")
-	req_status.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password))))
-	resp_status, err := httpClient.Do(req_status)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return CSPSubscription{}, fmt.Errorf("failed to get Azure subscription info: %s", resp.Status)
+	}
+
+	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return false, err
-	}
-	defer resp_status.Body.Close()
-	if resp_status.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("failed to get Azure subscription status: %s", resp_status.Status)
-	}
-	body, err := io.ReadAll(resp_status.Body)
-	if err != nil {
-		return false, err
+		return CSPSubscription{}, fmt.Errorf("failed to read Azure subscription info response: %v", err)
 	}
 	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return false, err
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		return CSPSubscription{}, fmt.Errorf("failed to parse Azure subscription info response: %v", err)
 	}
 
-	if result["status"].(string) != "successfull" {
-		if result["status"].(string) == "pending" {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to create Azure subscription: %s", result["message"].(string))
-	}
+	CSPSubscriptionInfo := result["data"].(CSPSubscription)
 
-	return true, nil
+	return CSPSubscriptionInfo, nil
 }
 
-func subscriptionInfo(requestId string, m *Config) (map[string]interface{}, error) {
-	// Use requestId to get info of the subscription creation
-	uri_info := fmt.Sprintf("%s/azure-api-gateway/v1/subscriptionStatus?requestId=%s&country=%s", m.Endpoint, requestId, m.Country)
+func changeSubscription(subscriptionObject CSPSubscription, m *Config) error {
+	url := fmt.Sprintf("%s/v1/subscriptions/%s", m.Endpoint, subscriptionObject.SubscriptionId)
 	httpClient := &http.Client{
 		Timeout: time.Second * 10,
 	}
-	req_info, err := http.NewRequest("GET", uri_info, nil)
+	req, err := http.NewRequest("PUT", url, nil)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create request to rename Azure subscription: %v", err)
 	}
-	req_info.Header.Set("Content-Type", "application/json")
-	req_info.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password))))
-	resp_info, err := httpClient.Do(req_info)
-	if err != nil {
-		return nil, err
-	}
-	defer resp_info.Body.Close()
-	if resp_info.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get Azure subscription info: %s", resp_info.Status)
-	}
-	body, err := io.ReadAll(resp_info.Body)
-	if err != nil {
-		return nil, err
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(m.Username+":"+m.Password)))) // #TODO: Auth needs to be changed to OAuth2 token based
+	req.Header.Set("X-Correlation-ID", 106)
 
-	return result, nil
-}
-
-func subscriptionARMInfo(subscriptionId string, m *Config) (armsubscription.SubscriptionsClientGetResponse, error) {
-	// Get Subscription info from Azure
-	var subscription armsubscription.SubscriptionsClientGetResponse
-
-	if m.AzureAuthCtx == nil {
-		return subscription, fmt.Errorf("Cannot authenticate with Azure API. To get subscription info, please run 'az login' or provide Azure Client ID, Client Secret and Tenant ID and try again")
-	}
-	clientFactory, err := armsubscription.NewClientFactory(m.AzureAuthCtx, nil)
+	requestBody, err := json.Marshal(subscriptionObject)
 	if err != nil {
-		return subscription, err
+		return fmt.Errorf("failed to marshal request body to rename Azure subscription: %v", err)
 	}
-	subscription, err = clientFactory.NewSubscriptionsClient().Get(context.Background(), subscriptionId, nil)
-	if err != nil {
-		return subscription, err
-	}
-	return subscription, nil
-}
+	req.Body = io.NopCloser(bytes.NewReader(requestBody))
 
-func renameSubscription(subscriptionId string, displayName string, m *Config) error {
-	// Use subscriptionId to rename the subscription
-	if m.AzureAuthCtx == nil {
-		return fmt.Errorf("Cannot authenticate with Azure API. To set display name, please run 'az login' or provide Azure Client ID, Client Secret and Tenant ID and try again")
-	}
-
-	clientFactory, err := armsubscription.NewClientFactory(m.AzureAuthCtx, nil)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to send request to rename Azure subscription: %v", err)
 	}
-	_, err = clientFactory.NewClient().Rename(context.Background(), subscriptionId, armsubscription.Name{SubscriptionName: &displayName}, nil)
-	if err != nil {
-		return err
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to rename Azure subscription: %s", resp.Status)
 	}
 	return nil
 }
