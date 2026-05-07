@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	"github.com/google/uuid"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -121,7 +120,7 @@ func resourceAzSubscriptionQuotaCreate(d *schema.ResourceData, m interface{}) er
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.CCMPApiToken)
-	req.Header.Set("X-Correlation-ID", uuid.New().String())
+	req.Header.Set("X-Correlation-ID", "10025")
 
 	resp, err := newMarketplaceClient(60*time.Second, cfg).Do(req)
 	if err != nil {

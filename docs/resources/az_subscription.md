@@ -15,10 +15,8 @@ Manages an Azure Subscription within the Cancom Marketplace.
 
 ```terraform
 resource "cancom-marketplace_az_subscription" "example" {
-  order_number        = "123456789"
-  azure_owner_object_id = "12345678-1234-1234-1234-123456789012"
-  azure_discount = 0
-
+  user_uuid    = "12345678-1234-1234-1234-123456789012"
+  # payment_plan_id = 123
   display_name = "My new CANCOM Azure Subscription"
 }
 ```
@@ -27,20 +25,19 @@ resource "cancom-marketplace_az_subscription" "example" {
 
 ### Required
 
-- `azure_owner_object_id` (string) - The object ID of the principal, which recieves owner permissions after subscription creation.
+- `user_uuid` (string) - The marketplace user UUID that receives owner permissions after subscription creation.
 
 ### Optional
 
-- `order_number` (string) - The PO number of the subscription. (Change forces redeployment)
-- `azure_discount` (int) - The marketplace discount ID for the Azure Plan. (Change forces redeployment)
+- `payment_plan_id` (int) - The payment plan ID for the Azure subscription.
 - `display_name` (string) - The display name of the subscription.
+- `azure_owner_object_id` (string) - The Azure AD object ID of the subscription owner.
 
 > **Note:** If using `display_name`, the subscription will be renamed after creation by using the Azure API with the context of `az login` or by using the Service Principal configuration of the provider. Ensure that the principal used for `az login` or the Service Principal configuration of the provider has the necessary permissions to rename the subscription (either on management group level, or by assuring that the principal associated with `azure_owner_object_id` is used with the Azure CLI context).
 
 ### Read-Only Attributes
 
 - `subscription_id` (string) - The subscription ID of the Azure subscription.
-- `request_id` (string) - The request ID of the Azure subscription.
 
 
 ## Import

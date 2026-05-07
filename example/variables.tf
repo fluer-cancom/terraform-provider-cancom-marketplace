@@ -1,7 +1,13 @@
-variable "CC_MP_USERNAME" {
+variable "api_client_id" {
   type = string
 }
 
-variable "CC_MP_PASSWORD" {
+variable "api_client_secret" {
   type = string
+  sensitive = true
+}
+
+variable "api_scope" {
+  type    = string
+  default = "AT-TIP"
 }

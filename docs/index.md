@@ -12,14 +12,15 @@ description: |-
 
 ### Required
 
-- `api_password` (String) The API password for the Cancom Marketplace - recieved by OneTime Link
-- `api_username` (String) The API username for the Cancom Marketplace - recieved by OneTime Link
-- `country` (String) The country of the customer
+- `api_client_id` (String) The API client ID for the Cancom Marketplace - received by OneTime Link
+- `api_client_secret` (String) The API client secret for the Cancom Marketplace - received by OneTime Link
 
 ### Optional
 
-- `endpoint` (String) The API endpoint for the Cancom Marketplace. Default is `https://cc-marketplace-ip.azure-api.net`.
+- `api_scope` (String) The API scope for the Cancom Marketplace. Default is `AT-PROD`.
+- `endpoint` (String) The API endpoint for the Cancom Marketplace. Default is `https://marketplace-apigateway.cancom.de`.
 - `azure_client_id` (String) The Azure client ID for the customers tenant.
 - `azure_client_secret` (String) The Azure client secret for the customers tenant.
 - `azure_tenant_id` (String) The Azure tenant ID for the customers tenant.
-> **Note:** If using `display_name`, the subscription will be renamed after creation by using the Azure API with the context of `az login` or by using the Service Principal configuration of the provider. Ensure that the principal used for `az login` or the Service Principal configuration of the provider has the necessary permissions to rename the subscription (either on management group level, or by assuring that the principal associated with `azure_owner_object_id` is used with the Azure CLI context).
+
+When using a Terraform CLI `dev_overrides` entry for local provider development, skip `terraform init` and run `terraform plan` or `terraform apply` directly.

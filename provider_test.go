@@ -43,14 +43,14 @@ func TestProviderSchemaFields(t *testing.T) {
 		}
 	}
 
-	if _, ok := p.ResourcesMap["az_subscription"]; !ok {
-		t.Error("resource az_subscription not registered")
+	if _, ok := p.ResourcesMap["cancom-marketplace_az_subscription"]; !ok {
+		t.Error("resource cancom-marketplace_az_subscription not registered")
 	}
-	if _, ok := p.ResourcesMap["az_subscription_quota"]; !ok {
-		t.Error("resource az_subscription_quota not registered")
+	if _, ok := p.ResourcesMap["cancom-marketplace_az_subscription_quota"]; !ok {
+		t.Error("resource cancom-marketplace_az_subscription_quota not registered")
 	}
-	if _, ok := p.DataSourcesMap["az_subscription"]; !ok {
-		t.Error("data source az_subscription not registered")
+	if _, ok := p.DataSourcesMap["cancom-marketplace_az_subscription"]; !ok {
+		t.Error("data source cancom-marketplace_az_subscription not registered")
 	}
 }
 

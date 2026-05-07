@@ -113,6 +113,45 @@ func TestResourceAzSubscriptionCreate_NoRenameWhenDisplayNameEmpty(t *testing.T)
 	}
 }
 
+func TestResourceAzSubscriptionCreate_AcceptsBareObjectResponse(t *testing.T) {
+	// Some marketplace responses are not wrapped in {"data": ...}; accept either.
+	fs, srv := newFakeServer(t)
+	defer srv.Close()
+	fs.on(http.MethodPost, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"sub-bare","user":{"id":"uuid-1"},"order":{"paymentPlan":{"id":2}}}`))
+	})
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
+		"user_uuid":       "uuid-1",
+		"payment_plan_id": 2,
+	})
+	if err := resourceAzSubscriptionCreate(d, newTestConfig(srv)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if d.Id() != "sub-bare" {
+		t.Errorf("Id = %q, want sub-bare", d.Id())
+	}
+}
+
+func TestResourceAzSubscriptionCreate_FailsLoudlyOnEmptyId(t *testing.T) {
+	fs, srv := newFakeServer(t)
+	defer srv.Close()
+	fs.on(http.MethodPost, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{}}`))
+	})
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "u"})
+	err := resourceAzSubscriptionCreate(d, newTestConfig(srv))
+	if err == nil || !strings.Contains(err.Error(), "no id") {
+		t.Fatalf("expected 'no id' error, got %v", err)
+	}
+	if d.Id() != "" {
+		t.Errorf("Id should remain empty on failure, got %q", d.Id())
+	}
+}
+
 func TestResourceAzSubscriptionCreate_PostFailureBubblesUp(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	defer srv.Close()

@@ -17,11 +17,11 @@ import (
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		ResourcesMap: map[string]*schema.Resource{
-			"az_subscription":       resourceAzSubscription(),
-			"az_subscription_quota": resourceAzSubscriptionQuota(),
+			"cancom-marketplace_az_subscription":       resourceAzSubscription(),
+			"cancom-marketplace_az_subscription_quota": resourceAzSubscriptionQuota(),
 		},
 		DataSourcesMap: map[string]*schema.Resource{
-			"az_subscription": dataAzSubscription(),
+			"cancom-marketplace_az_subscription": dataAzSubscription(),
 		},
 		Schema: map[string]*schema.Schema{
 			"api_client_id": {

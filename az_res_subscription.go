@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"time"
-	"github.com/google/uuid"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -78,7 +77,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.CCMPApiToken)
-	req.Header.Set("X-Correlation-ID", uuid.New().String())
+	req.Header.Set("X-Correlation-ID", "10026")
 
 	httpClient := newMarketplaceClient(120*time.Second, cfg)
 	resp, err := httpClient.Do(req)
@@ -87,20 +86,28 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to create Azure subscription: %s", resp.Status)
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create Azure subscription: %s \n Error: %s", resp.Status, string(respBody))
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+	// The OpenAPI spec doesn't fully document the Create response. Some marketplace
+	// endpoints wrap in {"data": ...}, others return the bare object — try both.
 	var envelope struct {
 		Data CSPSubscription `json:"data"`
 	}
-	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return fmt.Errorf("failed to parse subscription create response: %w", err)
+	var sub CSPSubscription
+	if jsonErr := json.Unmarshal(respBody, &envelope); jsonErr == nil && envelope.Data.Id != "" {
+		sub = envelope.Data
+	} else if jsonErr := json.Unmarshal(respBody, &sub); jsonErr != nil {
+		return fmt.Errorf("failed to parse subscription create response: %w; body=%s", jsonErr, string(respBody))
 	}
-	sub := envelope.Data
+	if sub.Id == "" {
+		return fmt.Errorf("subscription create returned no id; body=%s", string(respBody))
+	}
 
 	if displayName := d.Get("display_name").(string); displayName != "" {
 		dn := displayName
