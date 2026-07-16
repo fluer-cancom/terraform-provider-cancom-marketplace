@@ -1,4 +1,7 @@
 Supported Resources(+Data):
-- [ ] Subscriptions
-- [ ] Credentials
-- [ ] Quota
+- [x] Subscriptions
+- [x] Credentials
+- [x] Quota
+
+Error Management:
+- [ ] Fehlende Azure Auth soll nicht dazu führen, dass Subscription erstellt wird, aber dann nicht im State landet...
