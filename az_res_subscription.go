@@ -118,6 +118,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("subscription create returned no id; body=%s", string(respBody))
 	}
 
+	//#FIXME: Ensure Subscription is evident in state after successful creation. If further actions with Azure Management API are required, never forget to set the subscription_id in state, otherwise Terraform will try to create a new subscription on next apply.
 	d.SetId(sub.Id)
 	if err := setSubscriptionState(d, sub); err != nil {
 		return err
@@ -136,6 +137,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 		if err := setRawField(document, "label", displayName); err != nil {
 			return fmt.Errorf("failed to set subscription label: %w", err)
 		}
+		//#FIXME: This is not meant to set the displayName. displayName changes are not supported by the marketplace API. Use Azure Management API instead.
 		if err := changeSubscriptionDocument(document, cfg); err != nil {
 			return err
 		}
