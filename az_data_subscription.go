@@ -11,10 +11,15 @@ func dataAzSubscription() *schema.Resource {
 		Read:        dataAzSubscriptionRead,
 		Description: "Reads information about an Azure Subscription within the Cancom Marketplace.",
 		Schema: map[string]*schema.Schema{
-			"subscription_id": {
+			"marketplace_subscription_id": {
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "The subscription ID of the Azure subscription.",
+				Description: "The CANCOM Marketplace subscription ID used to query the Marketplace API.",
+			},
+			"subscription_id": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "The Azure subscription ID returned as externalAccountId by the Marketplace API.",
 			},
 			"display_name": {
 				Type:        schema.TypeString,
@@ -37,14 +42,17 @@ func dataAzSubscription() *schema.Resource {
 
 func dataAzSubscriptionRead(d *schema.ResourceData, m interface{}) error {
 	cfg := m.(*Config)
-	subscriptionId := d.Get("subscription_id").(string)
+	marketplaceSubscriptionID := d.Get("marketplace_subscription_id").(string)
 
-	sub, err := subscriptionInfo(subscriptionId, cfg)
+	sub, err := subscriptionInfo(marketplaceSubscriptionID, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to read Azure subscription info: %w", err)
 	}
 
 	d.SetId(sub.Id)
+	if err := d.Set("subscription_id", sub.ExternalAccountId); err != nil {
+		return fmt.Errorf("failed to set Azure subscription ID: %w", err)
+	}
 	if sub.Label != nil {
 		d.Set("display_name", *sub.Label)
 	}

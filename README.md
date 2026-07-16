@@ -27,9 +27,9 @@ provider "cancom-marketplace" {
   api_scope         = "AT-PROD" # Optional, defaults to AT-PROD
   # endpoint        = "https://marketplace-apigateway.cancom.de" # Optional, defaults to production
 
-  azure_client_id     = "your-azure-client-id" # Optional if using display_name / terraform support cancellation – alternatively use `az login`
-  azure_client_secret = "your-azure-client-secret" # Optional if using display_name / terraform support cancellation – alternatively use `az login`
-  azure_tenant_id     = "your-azure-tenant-id" # Optional if using display_name / terraform support cancellation – alternatively use `az login`
+  azure_client_id     = "your-azure-client-id" # Optional; required for cancellation unless `az login` supplies credentials
+  azure_client_secret = "your-azure-client-secret" # Optional; required for cancellation unless `az login` supplies credentials
+  azure_tenant_id     = "your-azure-tenant-id" # Optional; required for cancellation unless `az login` supplies credentials
 }
 ```
 
@@ -51,12 +51,13 @@ When using a Terraform CLI `dev_overrides` entry for local provider development,
 
 This resource allows you to create and manage Azure Subscriptions.
 
+After creation, the provider polls the Marketplace subscription every five seconds until `data.order.status` is `ACTIVE`. Azure-backed follow-up operations such as setting `display_name` only run after that point. The default create timeout is 30 minutes and can be overridden with a Terraform `timeouts` block.
+
 #### Example Usage
 
 ```hcl
 resource "cancom-marketplace_az_subscription" "example" {
   user_uuid    = "00000000-0000-0000-0000-000000000000"
-  # payment_plan_id = 123 # Optional
   display_name = "My new CANCOM Azure Subscription"
 }
 ```
@@ -64,13 +65,14 @@ resource "cancom-marketplace_az_subscription" "example" {
 #### Argument Reference
 
 *   `user_uuid` (String, Required) The marketplace user UUID that will own the created subscription.
-*   `payment_plan_id` (Int, Optional) The payment plan ID for the Azure subscription.
-*   `azure_owner_object_id` (String, Optional) The Azure AD object ID of the subscription owner.
+*   `azure_owner_object_id` (String, Optional, Deprecated) Legacy alias for the marketplace user UUID; it is not an Azure AD object ID.
 *   `display_name` (String, Optional) The display name of the subscription. – if set, usage of `az login` command or `azure_client_id`, `azure_client_secret` and `azure_tenant_id` is required.
 
 #### Attribute Reference
 
-*   `subscription_id` (String) The ID of the created Azure subscription.
+*   `subscription_id` (String) The Azure subscription ID returned in `externalAccountId`.
+*   `marketplace_subscription_id` (String) The CANCOM Marketplace subscription ID returned in `id` and used for Marketplace API operations.
+*   `payment_plan_id` (Int) The fixed payment plan ID (`172495`) used for Azure subscriptions.
 
 ## Development
 

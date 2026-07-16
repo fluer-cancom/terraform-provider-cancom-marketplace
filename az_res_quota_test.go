@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestResourceAzSubscriptionQuota_Schema(t *testing.T) {
@@ -14,10 +16,13 @@ func TestResourceAzSubscriptionQuota_Schema(t *testing.T) {
 	if err := r.InternalValidate(nil, true); err != nil {
 		t.Fatalf("schema invalid: %v", err)
 	}
-	for _, name := range []string{"subscription_id", "provider_namespace", "location", "quota_family", "quota_resource", "limit"} {
+	for _, name := range []string{"subscription_id", "provider_namespace", "location", "quota_resource", "limit"} {
 		if !r.Schema[name].Required {
 			t.Errorf("%q should be Required", name)
 		}
+	}
+	if !r.Schema["quota_family"].Optional || r.Schema["quota_family"].Deprecated == "" {
+		t.Error("quota_family should be an optional deprecated compatibility field")
 	}
 	for _, name := range []string{"provisioning_state", "request_id"} {
 		if !r.Schema[name].Computed {
@@ -27,7 +32,7 @@ func TestResourceAzSubscriptionQuota_Schema(t *testing.T) {
 }
 
 func TestResourceAzSubscriptionQuotaCreate_PutsAndCapturesRequestId(t *testing.T) {
-	wantPath := "/v1/microsoft/quota/subscriptions/sub-1/providers/Microsoft.Compute/locations/westeurope/providers/Microsoft.Quota/quotas/standardDFamily"
+	wantPath := "/v1/microsoft/quota/subscriptions/sub-1/providers/Microsoft.Compute/locations/westeurope/providers/Microsoft.Quota/quotas/standardDv2Family"
 	var sawBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
@@ -40,7 +45,7 @@ func TestResourceAzSubscriptionQuotaCreate_PutsAndCapturesRequestId(t *testing.T
 			t.Errorf("auth = %q", got)
 		}
 		sawBody, _ = io.ReadAll(r.Body)
-		w.Write([]byte(`{"data":{"id":"/v1/microsoft/quota/subscriptions/sub-1/...","name":"req-42","type":"Microsoft.Quota/Quotas","properties":{"provisioningState":"InProgress"}}}`))
+		w.Write([]byte(`{"data":{"id":"/v1/microsoft/quota/subscriptions/sub-1/...","name":"req-42","type":"Microsoft.Quota/Quotas","properties":{"provisioningState":"Succeeded"}}}`))
 	}))
 	defer srv.Close()
 
@@ -121,7 +126,7 @@ func TestResourceAzSubscriptionQuotaRead_PopulatesValues(t *testing.T) {
 		"provider_namespace": "Microsoft.Compute",
 		"location":           "westeurope",
 		"quota_family":       "f",
-		"quota_resource":     "r",
+		"quota_resource":     "standardDv2Family",
 		"limit":              0,
 	})
 	d.Set("request_id", "req-42")
@@ -144,7 +149,7 @@ func TestResourceAzSubscriptionQuotaUpdate_DelegatesToCreate(t *testing.T) {
 	called := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called++
-		w.Write([]byte(`{"data":{"name":"req-99","properties":{"provisioningState":"InProgress"}}}`))
+		w.Write([]byte(`{"data":{"name":"req-99","properties":{"provisioningState":"Succeeded"}}}`))
 	}))
 	defer srv.Close()
 
@@ -182,5 +187,54 @@ func TestResourceAzSubscriptionQuotaDelete_ClearsId(t *testing.T) {
 	}
 	if d.Id() != "" {
 		t.Errorf("expected Id to be cleared, got %q", d.Id())
+	}
+}
+
+func TestResourceAzSubscriptionQuotaCreate_PollsUntilSucceeded(t *testing.T) {
+	previousInterval := quotaPollInterval
+	quotaPollInterval = time.Millisecond
+	defer func() { quotaPollInterval = previousInterval }()
+
+	getCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			w.Write([]byte(`{"data":{"name":"req-poll","properties":{"provisioningState":"InProgress"}}}`))
+		case http.MethodGet:
+			getCalls++
+			w.Write([]byte(`{"data":{"name":"req-poll","properties":{"provisioningState":"Succeeded","value":[{"limit":{"value":10},"name":{"value":"STANDARDDFAMILY"}}]}}}`))
+		default:
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscriptionQuota().Schema, map[string]interface{}{
+		"subscription_id":    "sub-1",
+		"provider_namespace": "Microsoft.Compute",
+		"location":           "westeurope",
+		"quota_resource":     "standardDFamily",
+		"limit":              10,
+	})
+	if err := resourceAzSubscriptionQuotaCreate(d, newTestConfig(srv)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if getCalls == 0 || d.Get("provisioning_state").(string) != "Succeeded" {
+		t.Fatalf("polling calls = %d, state = %q", getCalls, d.Get("provisioning_state"))
+	}
+}
+
+func TestResourceAzSubscriptionQuotaImport_ParsesCompositeID(t *testing.T) {
+	d := schemaResourceDataFromRaw(t, resourceAzSubscriptionQuota().Schema, nil)
+	d.SetId("sub-1,Microsoft.Compute,westeurope,req-42")
+	resources, err := resourceAzSubscriptionQuotaImport(context.Background(), d, nil)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(resources) != 1 || d.Id() != "req-42" {
+		t.Fatalf("resources = %d, ID = %q", len(resources), d.Id())
+	}
+	if d.Get("provider_namespace").(string) != "Microsoft.Compute" || d.Get("location").(string) != "westeurope" {
+		t.Errorf("imported fields: provider=%q location=%q", d.Get("provider_namespace"), d.Get("location"))
 	}
 }

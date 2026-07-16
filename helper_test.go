@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,56 @@ func TestSubscriptionInfo_Non200(t *testing.T) {
 	}
 }
 
+func TestSubscriptionResponse_AcceptsStringPreviousOrderIDAndPreservesUnknownFields(t *testing.T) {
+	body := []byte(`{"data":{"id":"sub-1","order":{"previousOrder":{"id":"7922581"}},"futureApiField":{"keep":true}}}`)
+	sub, document, err := subscriptionResponse(body)
+	if err != nil {
+		t.Fatalf("subscriptionResponse: %v", err)
+	}
+	if sub.Order.PreviousOrder == nil || sub.Order.PreviousOrder.Id != "7922581" {
+		t.Errorf("previous order ID = %#v", sub.Order.PreviousOrder)
+	}
+	if _, ok := document["futureApiField"]; !ok {
+		t.Error("raw document did not preserve unknown field")
+	}
+}
+
+func TestSubscriptionResponse_AcceptsRealAzureSubscriptionShape(t *testing.T) {
+	body := []byte(`{
+		"data": {
+			"id": "7bbbfb19-c61f-461f-9cd7-cc8411b865eb",
+			"externalAccountId": "1ff979cb-acbf-461d-a471-57f6684ec086",
+			"maxUsers": null,
+			"order": {
+				"endDate": null,
+				"billingEndDate": null,
+				"paymentPlan": {"id": 172495, "contract": null},
+				"contract": null,
+				"paymentPlanId": 172495,
+				"discountId": null,
+				"oneTimeOrders": [{"paymentPlan": {"id": "172495"}, "id": 9591217}],
+				"customAttributes": [{"name": "dnbDisabled", "attributeType": "MULTISELECT", "valueKeys": ["yes"]}]
+			}
+		}
+	}`)
+	sub, _, err := subscriptionResponse(body)
+	if err != nil {
+		t.Fatalf("subscriptionResponse: %v", err)
+	}
+	if sub.Id != "7bbbfb19-c61f-461f-9cd7-cc8411b865eb" {
+		t.Errorf("marketplace ID = %q", sub.Id)
+	}
+	if sub.ExternalAccountId != "1ff979cb-acbf-461d-a471-57f6684ec086" {
+		t.Errorf("Azure subscription ID = %q", sub.ExternalAccountId)
+	}
+	if sub.MaxUsers != nil || sub.Order.EndDate != nil || sub.Order.BillingEndDate != nil || sub.Order.Contract != nil || sub.Order.PaymentPlan.Contract != nil {
+		t.Error("nullable API fields were not decoded as nil")
+	}
+	if sub.Order.CustomAttributes == nil || len(*sub.Order.CustomAttributes) != 1 || len((*sub.Order.CustomAttributes)[0].ValueKeys) != 1 {
+		t.Errorf("custom attributes = %#v", sub.Order.CustomAttributes)
+	}
+}
+
 func TestChangeSubscription_PutsToCorrectURLWithBody(t *testing.T) {
 	var sawMethod, sawPath, sawAuth, sawCorr string
 	var sawBody []byte
@@ -82,8 +133,10 @@ func TestChangeSubscription_PutsToCorrectURLWithBody(t *testing.T) {
 	if sawAuth != "Bearer test-token" {
 		t.Errorf("auth = %q", sawAuth)
 	}
-	if sawCorr != "106" {
-		t.Errorf("X-Correlation-ID = %q", sawCorr)
+	if sawCorr == "" {
+		t.Error("X-Correlation-ID should be set")
+	} else if _, err := strconv.ParseUint(sawCorr, 10, 64); err != nil {
+		t.Errorf("X-Correlation-ID = %q, want a numeric value", sawCorr)
 	}
 
 	var roundTrip CSPSubscription

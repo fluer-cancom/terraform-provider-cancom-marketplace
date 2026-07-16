@@ -11,10 +11,10 @@ func TestDataAzSubscription_Schema(t *testing.T) {
 	if err := r.InternalValidate(nil, false); err != nil {
 		t.Fatalf("schema invalid: %v", err)
 	}
-	if !r.Schema["subscription_id"].Required {
-		t.Error("subscription_id should be Required")
+	if !r.Schema["marketplace_subscription_id"].Required {
+		t.Error("marketplace_subscription_id should be Required")
 	}
-	for _, name := range []string{"display_name", "payment_plan_id", "owner_id"} {
+	for _, name := range []string{"subscription_id", "display_name", "payment_plan_id", "owner_id"} {
 		if !r.Schema[name].Computed {
 			t.Errorf("%q should be Computed", name)
 		}
@@ -38,6 +38,7 @@ func TestDataAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 		w.Write([]byte(`{
 			"data":{
 				"id":"7c9a1342-3091-4317-b4fe-0d8a68c18acd",
+				"externalAccountId":"1ff979cb-acbf-461d-a471-57f6684ec086",
 				"label":"Production Tenant",
 				"status":"ACTIVE",
 				"user":{"id":"98671c7c-a75c-406a-b536-51c072c05bdd"},
@@ -51,7 +52,7 @@ func TestDataAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 	defer srv.Close()
 
 	d := schemaResourceDataFromRaw(t, dataAzSubscription().Schema, map[string]interface{}{
-		"subscription_id": "7c9a1342-3091-4317-b4fe-0d8a68c18acd",
+		"marketplace_subscription_id": "7c9a1342-3091-4317-b4fe-0d8a68c18acd",
 	})
 	if err := dataAzSubscriptionRead(d, newTestConfig(srv)); err != nil {
 		t.Fatalf("Read: %v", err)
@@ -59,6 +60,9 @@ func TestDataAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 
 	if d.Id() != "7c9a1342-3091-4317-b4fe-0d8a68c18acd" {
 		t.Errorf("Id = %q", d.Id())
+	}
+	if d.Get("subscription_id").(string) != "1ff979cb-acbf-461d-a471-57f6684ec086" {
+		t.Errorf("subscription_id = %q", d.Get("subscription_id"))
 	}
 	if d.Get("display_name").(string) != "Production Tenant" {
 		t.Errorf("display_name = %q", d.Get("display_name"))
@@ -78,7 +82,7 @@ func TestDataAzSubscriptionRead_Non200Errors(t *testing.T) {
 	defer srv.Close()
 
 	d := schemaResourceDataFromRaw(t, dataAzSubscription().Schema, map[string]interface{}{
-		"subscription_id": "missing",
+		"marketplace_subscription_id": "missing",
 	})
 	if err := dataAzSubscriptionRead(d, newTestConfig(srv)); err == nil {
 		t.Fatal("expected error for 404 response")

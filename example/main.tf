@@ -1,5 +1,5 @@
 resource "cancom-marketplace_az_subscription" "example" {
-  user_uuid    = "9b3ba21d-4bd8-4ee5-a3eb-826b1677b404"
+  user_uuid    = "4cca3d47-0776-4f3f-8f75-5ed605adf7a3"
   display_name = "CC Test Subscription"
 }
 

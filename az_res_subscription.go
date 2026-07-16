@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
+
+const azureSubscriptionPaymentPlanID = 172495
+
+var subscriptionPollInterval = 5 * time.Second
 
 func resourceAzSubscription() *schema.Resource {
 	return &schema.Resource{
@@ -21,17 +26,20 @@ func resourceAzSubscription() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
 		},
+		Timeouts: &schema.ResourceTimeout{
+			Create: schema.DefaultTimeout(30 * time.Minute),
+		},
 		Schema: map[string]*schema.Schema{
 			"user_uuid": {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
-				Description: "The object ID of the marketplace principal that receives owner permissions after subscription creation.",
+				Description: "The marketplace user UUID for which the subscription is created.",
 			},
 			"payment_plan_id": {
 				Type:        schema.TypeInt,
-				Optional:    true,
-				Description: "The payment plan ID of the Azure subscription.",
+				Computed:    true,
+				Description: "The fixed payment plan ID of the Azure subscription.",
 			},
 			"display_name": {
 				Type:        schema.TypeString,
@@ -41,12 +49,19 @@ func resourceAzSubscription() *schema.Resource {
 			"azure_owner_object_id": {
 				Type:        schema.TypeString,
 				Optional:    true,
-				Description: "The Azure AD object ID of the subscription owner.",
+				Computed:    true,
+				Deprecated:  "azure_owner_object_id is a legacy name for the marketplace user UUID; use user_uuid for new configurations",
+				Description: "Legacy alias for the marketplace user UUID. This is not an Azure AD object ID.",
 			},
 			"subscription_id": {
 				Type:        schema.TypeString,
 				Computed:    true,
-				Description: "The subscription ID of the Azure subscription.",
+				Description: "The Azure subscription ID returned as externalAccountId by the Marketplace API.",
+			},
+			"marketplace_subscription_id": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "The CANCOM Marketplace subscription ID used for Marketplace API operations.",
 			},
 		},
 	}
@@ -54,12 +69,13 @@ func resourceAzSubscription() *schema.Resource {
 
 func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	cfg := m.(*Config)
+	displayName := d.Get("display_name").(string)
 
 	uri := fmt.Sprintf("%s/v1/subscriptions", cfg.Endpoint)
 
 	body := map[string]interface{}{
 		"order": map[string]interface{}{
-			"paymentPlanId": d.Get("payment_plan_id").(int),
+			"paymentPlanId": azureSubscriptionPaymentPlanID,
 		},
 	}
 	requestBody, err := json.Marshal(body)
@@ -77,7 +93,7 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.CCMPApiToken)
-	req.Header.Set("X-Correlation-ID", "10026")
+	req.Header.Set("X-Correlation-ID", nextCorrelationID())
 
 	httpClient := newMarketplaceClient(120*time.Second, cfg)
 	resp, err := httpClient.Do(req)
@@ -94,37 +110,66 @@ func resourceAzSubscriptionCreate(d *schema.ResourceData, m interface{}) error {
 	if err != nil {
 		return err
 	}
-	// The OpenAPI spec doesn't fully document the Create response. Some marketplace
-	// endpoints wrap in {"data": ...}, others return the bare object — try both.
-	var envelope struct {
-		Data CSPSubscription `json:"data"`
-	}
-	var sub CSPSubscription
-	if jsonErr := json.Unmarshal(respBody, &envelope); jsonErr == nil && envelope.Data.Id != "" {
-		sub = envelope.Data
-	} else if jsonErr := json.Unmarshal(respBody, &sub); jsonErr != nil {
+	sub, _, jsonErr := subscriptionResponse(respBody)
+	if jsonErr != nil {
 		return fmt.Errorf("failed to parse subscription create response: %w; body=%s", jsonErr, string(respBody))
 	}
 	if sub.Id == "" {
 		return fmt.Errorf("subscription create returned no id; body=%s", string(respBody))
 	}
 
-	if displayName := d.Get("display_name").(string); displayName != "" {
-		dn := displayName
-		sub.Label = &dn
-		if err := changeSubscription(sub, cfg); err != nil {
-			return err
-		}
+	d.SetId(sub.Id)
+	if err := setSubscriptionState(d, sub); err != nil {
+		return err
+	}
+	activeSub, document, err := waitForSubscriptionActive(sub.Id, cfg, d.Timeout(schema.TimeoutCreate))
+	if err != nil {
+		return err
+	}
+	if err := setSubscriptionState(d, activeSub); err != nil {
+		return err
 	}
 
-	d.SetId(sub.Id)
-	d.Set("subscription_id", sub.Id)
-	d.Set("user_uuid", sub.User.Id)
-	d.Set("payment_plan_id", sub.Order.PaymentPlan.Id)
-	if sub.Label != nil {
-		d.Set("display_name", *sub.Label)
+	// PUT requires the complete object and Azure-backed changes must not be sent
+	// before the marketplace order has reached ACTIVE.
+	if displayName != "" {
+		if err := setRawField(document, "label", displayName); err != nil {
+			return fmt.Errorf("failed to set subscription label: %w", err)
+		}
+		if err := changeSubscriptionDocument(document, cfg); err != nil {
+			return err
+		}
+		if err := d.Set("display_name", displayName); err != nil {
+			return fmt.Errorf("failed to set subscription display_name: %w", err)
+		}
 	}
 	return nil
+}
+
+func waitForSubscriptionActive(subscriptionID string, cfg *Config, timeout time.Duration) (CSPSubscription, map[string]json.RawMessage, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(subscriptionPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline.C:
+			return CSPSubscription{}, nil, fmt.Errorf("timed out waiting for marketplace subscription %s order to become ACTIVE", subscriptionID)
+		case <-ticker.C:
+			sub, document, err := subscriptionInfoDocument(subscriptionID, cfg)
+			if err != nil {
+				var statusErr *marketplaceStatusError
+				if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+					continue
+				}
+				return CSPSubscription{}, nil, fmt.Errorf("failed while waiting for marketplace subscription %s: %w", subscriptionID, err)
+			}
+			if sub.Order.Status == "ACTIVE" {
+				return sub, document, nil
+			}
+		}
+	}
 }
 
 func resourceAzSubscriptionRead(d *schema.ResourceData, m interface{}) error {
@@ -132,46 +177,114 @@ func resourceAzSubscriptionRead(d *schema.ResourceData, m interface{}) error {
 
 	id := d.Id()
 	if id == "" {
-		id = d.Get("subscription_id").(string)
+		id = d.Get("marketplace_subscription_id").(string)
 	}
 
 	sub, err := subscriptionInfo(id, cfg)
 	if err != nil {
+		var statusErr *marketplaceStatusError
+		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
 
-	d.Set("payment_plan_id", sub.Order.PaymentPlan.Id)
-	d.Set("azure_owner_object_id", sub.User.Id)
-	d.Set("subscription_id", sub.Id)
-	if sub.Label != nil {
-		d.Set("display_name", *sub.Label)
-	}
-	return nil
+	return setSubscriptionState(d, sub)
 }
 
 func resourceAzSubscriptionUpdate(d *schema.ResourceData, m interface{}) error {
 	cfg := m.(*Config)
 
-	d.Partial(true)
-	defer d.Partial(false)
-
-	sub, err := subscriptionInfo(d.Id(), cfg)
+	_, document, err := subscriptionInfoDocument(d.Id(), cfg)
 	if err != nil {
 		return err
 	}
 
-	if dn := d.Get("display_name").(string); dn != "" {
-		sub.Label = &dn
+	if d.HasChange("display_name") {
+		dn := d.Get("display_name").(string)
+		if dn == "" {
+			if err := setRawField(document, "label", nil); err != nil {
+				return err
+			}
+		} else if err := setRawField(document, "label", dn); err != nil {
+			return err
+		}
 	}
-	sub.Order.PaymentPlan.Id = d.Get("payment_plan_id").(int)
-	if owner := d.Get("azure_owner_object_id").(string); owner != "" {
-		sub.User.Id = owner
+	if d.HasChange("azure_owner_object_id") {
+		owner := d.Get("azure_owner_object_id").(string)
+		if owner != "" {
+			user, err := nestedRawObject(document, "user")
+			if err != nil {
+				return err
+			}
+			if err := setRawField(user, "id", owner); err != nil {
+				return err
+			}
+			if err := storeNestedRawObject(document, "user", user); err != nil {
+				return err
+			}
+			order, err := nestedRawObject(document, "order")
+			if err != nil {
+				return err
+			}
+			if _, ok := order["user"]; ok {
+				orderUser, err := nestedRawObject(order, "user")
+				if err != nil {
+					return err
+				}
+				if err := setRawField(orderUser, "id", owner); err != nil {
+					return err
+				}
+				if err := storeNestedRawObject(order, "user", orderUser); err != nil {
+					return err
+				}
+				if err := storeNestedRawObject(document, "order", order); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
-	return changeSubscription(sub, cfg)
+	return changeSubscriptionDocument(document, cfg)
 }
 
 func resourceAzSubscriptionDelete(d *schema.ResourceData, m interface{}) error {
 	cfg := m.(*Config)
-	return cancelSubscription(d.Id(), cfg)
+	azureSubscriptionID := d.Get("subscription_id").(string)
+	if azureSubscriptionID == "" {
+		return fmt.Errorf("cannot cancel subscription: Marketplace API returned no externalAccountId (Azure subscription ID)")
+	}
+	return cancelSubscription(azureSubscriptionID, cfg)
+}
+
+func setSubscriptionState(d *schema.ResourceData, sub CSPSubscription) error {
+	paymentPlanID := sub.Order.PaymentPlan.Id
+	if paymentPlanID == 0 {
+		paymentPlanID = sub.Order.PaymentPlanId
+	}
+	values := map[string]interface{}{
+		"marketplace_subscription_id": sub.Id,
+	}
+	if sub.ExternalAccountId != "" {
+		values["subscription_id"] = sub.ExternalAccountId
+	}
+	if sub.User.Id != "" {
+		values["user_uuid"] = sub.User.Id
+		values["azure_owner_object_id"] = sub.User.Id
+	}
+	if paymentPlanID != 0 {
+		values["payment_plan_id"] = paymentPlanID
+	}
+	if sub.Label != nil {
+		values["display_name"] = *sub.Label
+	} else {
+		values["display_name"] = ""
+	}
+	for name, value := range values {
+		if err := d.Set(name, value); err != nil {
+			return fmt.Errorf("failed to set subscription state field %s: %w", name, err)
+		}
+	}
+	return nil
 }

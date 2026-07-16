@@ -9,7 +9,7 @@ type CSPSubscription struct {
 	ExternalAccountId           string        `json:"externalAccountId"`
 	Status                      string        `json:"status"`
 	Label                       *string       `json:"label"`
-	MaxUsers                    int           `json:"maxUsers"`
+	MaxUsers                    *int          `json:"maxUsers"`
 	AssignedUsers               int           `json:"assignedUsers"`
 	Order                       Order         `json:"order"`
 	UpcomingOrder               *Order        `json:"upcomingOrder"`
@@ -29,12 +29,12 @@ type CSPSubscription struct {
 type Order struct {
 	UUID                 string             `json:"uuid"`
 	StartDate            int64              `json:"startDate"`
-	EndDate              int64              `json:"endDate"`
+	EndDate              *int64             `json:"endDate"`
 	ServiceStartDate     string             `json:"serviceStartDate"`
 	NextBillingDate      int64              `json:"nextBillingDate"`
 	EndOfDiscountDate    *int64             `json:"endOfDiscountDate"`
 	CycleStartDate       int64              `json:"cycleStartDate"`
-	BillingEndDate       int64              `json:"billingEndDate"`
+	BillingEndDate       *int64             `json:"billingEndDate"`
 	Status               string             `json:"status"`
 	Frequency            string             `json:"frequency"`
 	Currency             string             `json:"currency"`
@@ -47,19 +47,21 @@ type Order struct {
 	ReferenceCode        *string            `json:"referenceCode"`
 	TransactionMode      string             `json:"transactionMode"`
 	PaymentPlan          PaymentPlan        `json:"paymentPlan"`
-	Contract             Contract           `json:"contract"`
+	Contract             *Contract          `json:"contract"`
 	ParentSubscriptionId *string            `json:"parentSubscriptionId"`
 	PreviousOrder        *Order             `json:"previousOrder"`
 	NextOrder            *Order             `json:"nextOrder"`
 	PaymentPlanId        int                `json:"paymentPlanId"`
-	DiscountId           string             `json:"discountId"`
+	DiscountId           *string            `json:"discountId"`
 	Activated            bool               `json:"activated"`
 	OneTimeOrders        []interface{}      `json:"oneTimeOrders"`
 	OrderLines           []OrderLine        `json:"orderLines"`
 	Parameters           *[]Parameter       `json:"parameters"`
 	CustomAttributes     *[]CustomAttribute `json:"customAttributes"`
 	Links                *[]Link            `json:"links"`
-	Id                   int                `json:"id"`
+	// The API returns order IDs as both JSON numbers and strings (for example,
+	// previousOrder.id), so retain the value without imposing one representation.
+	Id interface{} `json:"id"`
 }
 
 type User struct {
@@ -79,19 +81,19 @@ type Edition struct {
 }
 
 type PaymentPlan struct {
-	Id                              int                 `json:"id"`
-	UUID                            string              `json:"uuid"`
-	Frequency                       string              `json:"frequency"`
-	Status                          string              `json:"status"`
-	Contract                        PaymentPlanContract `json:"contract"`
-	AllowCustomUsage                bool                `json:"allowCustomUsage"`
-	KeepBillDateOnUsageChange       bool                `json:"keepBillDateOnUsageChange"`
-	KeepBillDateOnPricingPlanChange bool                `json:"keepBillDateOnPricingPlanChange"`
-	SeparatePrepaid                 bool                `json:"separatePrepaid"`
-	IsPrimaryPrice                  bool                `json:"isPrimaryPrice"`
-	Costs                           []Cost              `json:"costs"`
-	CreditOnCancellation            bool                `json:"creditOnCancellation"`
-	PrimaryPrice                    bool                `json:"primaryPrice"`
+	Id                              int                  `json:"id"`
+	UUID                            string               `json:"uuid"`
+	Frequency                       string               `json:"frequency"`
+	Status                          string               `json:"status"`
+	Contract                        *PaymentPlanContract `json:"contract"`
+	AllowCustomUsage                bool                 `json:"allowCustomUsage"`
+	KeepBillDateOnUsageChange       bool                 `json:"keepBillDateOnUsageChange"`
+	KeepBillDateOnPricingPlanChange bool                 `json:"keepBillDateOnPricingPlanChange"`
+	SeparatePrepaid                 bool                 `json:"separatePrepaid"`
+	IsPrimaryPrice                  bool                 `json:"isPrimaryPrice"`
+	Costs                           []Cost               `json:"costs"`
+	CreditOnCancellation            bool                 `json:"creditOnCancellation"`
+	PrimaryPrice                    bool                 `json:"primaryPrice"`
 }
 
 type PaymentPlanContract struct {
@@ -141,6 +143,8 @@ type Cost struct {
 	BlockContractDecrease         bool               `json:"blockContractDecrease"`
 	BlockContractIncrease         bool               `json:"blockContractIncrease"`
 	BlockOriginalContractDecrease bool               `json:"blockOriginalContractDecrease"`
+	CanIncreaseUnits              bool               `json:"canIncreaseUnits"`
+	CanDecreaseUnits              bool               `json:"canDecreaseUnits"`
 	Amount                        map[string]float64 `json:"amount"`
 	PricingStrategy               string             `json:"pricingStrategy"`
 }
@@ -200,9 +204,10 @@ type Parameter struct {
 }
 
 type CustomAttribute struct {
-	Name          string `json:"name"`
-	AttributeType string `json:"attributeType"`
-	Value         string `json:"value"`
+	Name          string   `json:"name"`
+	AttributeType string   `json:"attributeType"`
+	Value         string   `json:"value"`
+	ValueKeys     []string `json:"valueKeys"`
 }
 
 type Link struct {

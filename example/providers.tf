@@ -11,5 +11,5 @@ provider "cancom-marketplace" {
   api_client_id     = var.api_client_id
   api_client_secret = var.api_client_secret
   api_scope         = var.api_scope
-  endpoint = "https://ccmpin-marketplace-apigateway-dev-eagtetaqaxc8ewd6.northeurope-01.azurewebsites.net"
+  endpoint          = "https://marketplace-apigateway.cancom.de"
 }
