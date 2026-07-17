@@ -14,6 +14,17 @@ import (
 	"terraform-provider-cancommarketplace/internal/marketplace"
 )
 
+const (
+	envAPIClientID          = "CANCOM_MARKETPLACE_API_CLIENT_ID"
+	envAPIClientSecret      = "CANCOM_MARKETPLACE_API_CLIENT_SECRET"
+	envMarketplaceUserEmail = "CANCOM_MARKETPLACE_USER_EMAIL"
+	envAPIScope             = "CANCOM_MARKETPLACE_API_SCOPE"
+	envEndpoint             = "CANCOM_MARKETPLACE_ENDPOINT"
+	envAzureClientID        = "CANCOM_MARKETPLACE_AZURE_CLIENT_ID"
+	envAzureClientSecret    = "CANCOM_MARKETPLACE_AZURE_CLIENT_SECRET"
+	envAzureTenantID        = "CANCOM_MARKETPLACE_AZURE_TENANT_ID"
+)
+
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		ResourcesMap: map[string]*schema.Resource{
@@ -26,12 +37,14 @@ func Provider() *schema.Provider {
 		Schema: map[string]*schema.Schema{
 			"api_client_id": {
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc(envAPIClientID, nil),
 				Description: "The API client ID for the Cancom Marketplace - received by OneTime Link",
 			},
 			"api_client_secret": {
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc(envAPIClientSecret, nil),
 				Sensitive:   true,
 				Description: "The API client secret for the Cancom Marketplace - received by OneTime Link",
 			},
@@ -39,34 +52,38 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Description: "The API scope for the Cancom Marketplace - default is 'AT-PROD'",
-				Default:     "AT-PROD",
+				DefaultFunc: schema.EnvDefaultFunc(envAPIScope, "AT-PROD"),
 			},
 			"marketplace_user_email": {
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc(envMarketplaceUserEmail, nil),
 				Description: "The marketplace user email address for which subscriptions are created.",
 			},
 			"azure_client_id": {
 				Type:        schema.TypeString,
 				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc(envAzureClientID, nil),
 				Description: "The Azure client ID for the customers tenant",
 			},
 			"azure_client_secret": {
 				Type:        schema.TypeString,
 				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc(envAzureClientSecret, nil),
 				Sensitive:   true,
 				Description: "The Azure client secret for the customers tenant",
 			},
 			"azure_tenant_id": {
 				Type:        schema.TypeString,
 				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc(envAzureTenantID, nil),
 				Description: "The Azure tenant ID for the customers tenant",
 			},
 			"endpoint": {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Description: "The API endpoint for the Cancom Marketplace",
-				Default:     "https://marketplace-apigateway.cancom.de",
+				DefaultFunc: schema.EnvDefaultFunc(envEndpoint, "https://marketplace-apigateway.cancom.de"),
 			},
 		},
 		ConfigureFunc: providerConfigure,
@@ -143,6 +160,16 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		AzureTenantId:        d.Get("azure_tenant_id").(string),
 		MarketplaceUserEmail: d.Get("marketplace_user_email").(string),
 		HTTPClient:           &http.Client{Timeout: 120 * time.Second},
+	}
+
+	if cfg.ClientId == "" {
+		return nil, fmt.Errorf("api_client_id must be set in provider configuration or %s", envAPIClientID)
+	}
+	if cfg.ClientSecret == "" {
+		return nil, fmt.Errorf("api_client_secret must be set in provider configuration or %s", envAPIClientSecret)
+	}
+	if cfg.MarketplaceUserEmail == "" {
+		return nil, fmt.Errorf("marketplace_user_email must be set in provider configuration or %s", envMarketplaceUserEmail)
 	}
 
 	azID := cfg.AzureClientId

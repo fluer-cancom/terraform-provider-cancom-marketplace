@@ -42,6 +42,10 @@ func newTestConfigWithAzurePreflight(srv *httptest.Server, preflight func(contex
 	cfg.Azure = &azure.Client{
 		Credential: fakeCredential{},
 		Preflight:  preflight,
+		Rename:     func(context.Context, string, string) error { return nil },
+		DisplayName: func(context.Context, string) (string, error) {
+			return "", nil
+		},
 	}
 	return cfg
 }
@@ -49,13 +53,19 @@ func newTestConfigWithAzurePreflight(srv *httptest.Server, preflight func(contex
 func newTestConfigWithAzureHooks(
 	srv *httptest.Server,
 	preflight func(context.Context, []azure.Operation) error,
+	rename func(context.Context, string, string) error,
+	displayName func(context.Context, string) (string, error),
 	assignOwner func(context.Context, string, string) error,
+	cancel func(context.Context, string) error,
 ) *Config {
 	cfg := newTestConfig(srv)
 	cfg.Azure = &azure.Client{
 		Credential:  fakeCredential{},
 		Preflight:   preflight,
+		Rename:      rename,
+		DisplayName: displayName,
 		AssignOwner: assignOwner,
+		Cancel:      cancel,
 	}
 	return cfg
 }

@@ -23,6 +23,7 @@ const (
 	OperationReadDefaultManagementGroup Operation = "Microsoft.Management/managementGroups/settings/read"
 	OperationRenameSubscription         Operation = "Microsoft.Subscription/subscriptions/rename/action"
 	OperationAssignOwnerRole            Operation = "Microsoft.Authorization/roleAssignments/write"
+	OperationCancelSubscription         Operation = "Microsoft.Subscription/subscriptions/cancel/action"
 )
 
 const (
@@ -35,7 +36,10 @@ type Client struct {
 	HTTPClient         *http.Client
 	ManagementEndpoint string
 	Preflight          func(context.Context, []Operation) error
+	Rename             func(context.Context, string, string) error
+	DisplayName        func(context.Context, string) (string, error)
 	AssignOwner        func(context.Context, string, string) error
+	Cancel             func(context.Context, string) error
 }
 
 func NewClientSecretCredential(tenantID, clientID, clientSecret string) (azcore.TokenCredential, error) {
@@ -115,7 +119,57 @@ func (c *Client) AssignOwnerRole(ctx context.Context, subscriptionID, principalO
 	return nil
 }
 
-func (c *Client) CancelSubscription(subscriptionID string) error {
+func (c *Client) RenameSubscription(ctx context.Context, subscriptionID, displayName string) error {
+	if c.Rename != nil {
+		return c.Rename(ctx, subscriptionID, displayName)
+	}
+	if c == nil || c.Credential == nil {
+		return fmt.Errorf("cannot authenticate with Azure API. To rename subscription, run 'az login' or set azure_client_id/azure_client_secret/azure_tenant_id")
+	}
+	if subscriptionID == "" {
+		return fmt.Errorf("cannot rename subscription: Azure subscription ID is empty")
+	}
+	if displayName == "" {
+		return nil
+	}
+	clientFactory, err := armsubscription.NewClientFactory(c.Credential, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := clientFactory.NewClient().Rename(ctx, subscriptionID, armsubscription.Name{SubscriptionName: &displayName}, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) SubscriptionDisplayName(ctx context.Context, subscriptionID string) (string, error) {
+	if c.DisplayName != nil {
+		return c.DisplayName(ctx, subscriptionID)
+	}
+	if c == nil || c.Credential == nil {
+		return "", fmt.Errorf("cannot authenticate with Azure API. To read subscription display name, run 'az login' or set azure_client_id/azure_client_secret/azure_tenant_id")
+	}
+	if subscriptionID == "" {
+		return "", fmt.Errorf("cannot read subscription display name: Azure subscription ID is empty")
+	}
+	client, err := armsubscription.NewSubscriptionsClient(c.Credential, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Get(ctx, subscriptionID, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.DisplayName == nil {
+		return "", nil
+	}
+	return *resp.DisplayName, nil
+}
+
+func (c *Client) CancelSubscription(ctx context.Context, subscriptionID string) error {
+	if c.Cancel != nil {
+		return c.Cancel(ctx, subscriptionID)
+	}
 	if c == nil || c.Credential == nil {
 		return fmt.Errorf("cannot authenticate with Azure API. To cancel subscription, run 'az login' or set azure_client_id/azure_client_secret/azure_tenant_id")
 	}
@@ -123,7 +177,7 @@ func (c *Client) CancelSubscription(subscriptionID string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := clientFactory.NewClient().Cancel(context.Background(), subscriptionID, nil); err != nil {
+	if _, err := clientFactory.NewClient().Cancel(ctx, subscriptionID, nil); err != nil {
 		return err
 	}
 	return nil
@@ -212,7 +266,7 @@ func preflightError(operations []Operation, err error) error {
 func requiresDefaultManagementGroupPreflight(operations []Operation) bool {
 	for _, operation := range operations {
 		switch operation {
-		case OperationReadDefaultManagementGroup, OperationRenameSubscription, OperationAssignOwnerRole:
+		case OperationReadDefaultManagementGroup, OperationRenameSubscription, OperationAssignOwnerRole, OperationCancelSubscription:
 			return true
 		}
 	}

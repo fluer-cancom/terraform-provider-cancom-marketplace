@@ -9,8 +9,16 @@ description: |-
 
 Manages an Azure Subscription within the Cancom Marketplace.
 
+Subscriptions are created for the Marketplace user configured on the provider with `marketplace_user_email`. The resource itself does not accept a user UUID.
+
+Before creating a subscription that uses Azure-backed properties, the provider verifies Azure authentication and reads the Default Management Group hierarchy settings. This prevents creating a Marketplace subscription when the Azure follow-up operation would fail. After creation, the provider polls the Marketplace subscription until `data.order.status` is `ACTIVE`.
+
 ## Example Usage
 
 {{ tffile "example/main.tf" }}
 
+## Azure-Backed Behavior
 
+`display_name` renames the Azure subscription through the Azure Management API. `azure_owner_object_id` creates an Azure `Owner` role assignment on the created subscription for the configured Azure principal object ID. Changing either field only calls the Azure Management API and does not modify the Marketplace subscription document.
+
+See [Troubleshooting](../guides/troubleshooting.md) for common Marketplace user lookup and Azure preflight errors.

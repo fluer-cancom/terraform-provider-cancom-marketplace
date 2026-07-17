@@ -34,18 +34,32 @@ provider "cancom-marketplace" {
 }
 ```
 
+The same values can also be supplied through environment variables:
+
+```shell
+export CANCOM_MARKETPLACE_API_CLIENT_ID="your-api-client-id"
+export CANCOM_MARKETPLACE_API_CLIENT_SECRET="your-api-client-secret"
+export CANCOM_MARKETPLACE_USER_EMAIL="user@example.com"
+export CANCOM_MARKETPLACE_API_SCOPE="AT-PROD"
+export CANCOM_MARKETPLACE_ENDPOINT="https://marketplace-apigateway.cancom.de"
+
+export CANCOM_MARKETPLACE_AZURE_CLIENT_ID="your-azure-client-id"
+export CANCOM_MARKETPLACE_AZURE_CLIENT_SECRET="your-azure-client-secret"
+export CANCOM_MARKETPLACE_AZURE_TENANT_ID="your-azure-tenant-id"
+```
+
 When using a Terraform CLI `dev_overrides` entry for local provider development, do not run `terraform init` in the example directory. Use `terraform plan` or `terraform apply` directly so Terraform loads the provider binary from the override path instead of querying the public registry.
 
 ### Provider Arguments
 
-*   `api_client_id` (String, Required) The API client ID for the Cancom Marketplace.
-*   `api_client_secret` (String, Required) The API client secret for the Cancom Marketplace.
-*   `marketplace_user_email` (String, Required) The email address of the CANCOM Marketplace user for which subscriptions are created. The provider resolves it through `/v1/users` during initialization.
-*   `api_scope` (String, Optional) The API scope for the Cancom Marketplace. Defaults to `AT-PROD`.
-*   `endpoint` (String, Optional) The API endpoint. Defaults to `https://marketplace-apigateway.cancom.de`.
-*   `azure_client_id` (String, Optional) The Azure client ID for the customers tenant. – alternatively use `az login`
-*   `azure_client_secret` (String, Optional) The Azure client secret for the customers tenant. – alternatively use `az login`
-*   `azure_tenant_id` (String, Optional) The Azure tenant ID for the customers tenant. – alternatively use `az login`
+*   `api_client_id` (String, Required) The API client ID for the Cancom Marketplace. Can also be set with `CANCOM_MARKETPLACE_API_CLIENT_ID`.
+*   `api_client_secret` (String, Required) The API client secret for the Cancom Marketplace. Can also be set with `CANCOM_MARKETPLACE_API_CLIENT_SECRET`.
+*   `marketplace_user_email` (String, Required) The email address of the CANCOM Marketplace user for which subscriptions are created. Can also be set with `CANCOM_MARKETPLACE_USER_EMAIL`.
+*   `api_scope` (String, Optional) The API scope for the Cancom Marketplace. Can also be set with `CANCOM_MARKETPLACE_API_SCOPE`. Defaults to `AT-PROD`.
+*   `endpoint` (String, Optional) The API endpoint. Can also be set with `CANCOM_MARKETPLACE_ENDPOINT`. Defaults to `https://marketplace-apigateway.cancom.de`.
+*   `azure_client_id` (String, Optional) The Azure client ID for the customers tenant. Can also be set with `CANCOM_MARKETPLACE_AZURE_CLIENT_ID`; alternatively use `az login` or Azure SDK default credentials.
+*   `azure_client_secret` (String, Optional) The Azure client secret for the customers tenant. Can also be set with `CANCOM_MARKETPLACE_AZURE_CLIENT_SECRET`; alternatively use `az login` or Azure SDK default credentials.
+*   `azure_tenant_id` (String, Optional) The Azure tenant ID for the customers tenant. Can also be set with `CANCOM_MARKETPLACE_AZURE_TENANT_ID`; alternatively use `az login` or Azure SDK default credentials.
 
 ## Resources
 
@@ -53,7 +67,7 @@ When using a Terraform CLI `dev_overrides` entry for local provider development,
 
 This resource allows you to create and manage Azure Subscriptions.
 
-Before creating a subscription that uses Azure-backed properties, the provider verifies Azure authentication and reads the Default Management Group hierarchy settings. This prevents creating a Marketplace subscription when the Azure follow-up operation would fail. After creation, the provider polls the Marketplace subscription every five seconds until `data.order.status` is `ACTIVE`. Azure-backed follow-up operations only run after that point. The default create timeout is 30 minutes and can be overridden with a Terraform `timeouts` block.
+Before creating a subscription that uses Azure-backed properties, the provider verifies Azure authentication and reads the Default Management Group hierarchy settings. This prevents creating a Marketplace subscription when the Azure follow-up operation would fail. After creation, the provider polls the Marketplace subscription every five seconds until `data.order.status` is `ACTIVE`. Azure-backed follow-up operations, such as renaming the Azure subscription or assigning the Owner role, only run after that point. The default create timeout is 30 minutes and can be overridden with a Terraform `timeouts` block.
 
 #### Example Usage
 
@@ -67,7 +81,7 @@ resource "cancom-marketplace_az_subscription" "example" {
 #### Argument Reference
 
 *   `azure_owner_object_id` (String, Optional) The Azure principal object ID that receives the `Owner` role on the created Azure subscription. Requires Azure authentication and permissions inherited from the Default Management Group.
-*   `display_name` (String, Optional) The display name of the subscription. – if set, usage of `az login` command or `azure_client_id`, `azure_client_secret` and `azure_tenant_id` is required.
+*   `display_name` (String, Optional) The Azure subscription display name. If set, usage of `az login` command or `azure_client_id`, `azure_client_secret` and `azure_tenant_id` is required.
 
 #### Attribute Reference
 

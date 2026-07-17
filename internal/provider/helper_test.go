@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -164,7 +165,7 @@ func TestChangeSubscription_Non200(t *testing.T) {
 }
 
 func TestCancelSubscription_NoAzureCredsErrors(t *testing.T) {
-	err := (&azure.Client{}).CancelSubscription("sub-1")
+	err := (&azure.Client{}).CancelSubscription(context.Background(), "sub-1")
 	if err == nil || !strings.Contains(err.Error(), "cannot authenticate with Azure API") {
 		t.Fatalf("expected azure auth error, got %v", err)
 	}

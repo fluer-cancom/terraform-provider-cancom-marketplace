@@ -16,30 +16,27 @@ func TestProviderInternalValidate(t *testing.T) {
 func TestProviderSchemaFields(t *testing.T) {
 	p := Provider()
 
-	required := []string{"api_client_id", "api_client_secret", "marketplace_user_email"}
-	for _, name := range required {
+	envBacked := []string{"api_client_id", "api_client_secret", "marketplace_user_email"}
+	for _, name := range envBacked {
 		s, ok := p.Schema[name]
 		if !ok {
 			t.Errorf("missing schema field %q", name)
 			continue
 		}
-		if !s.Required {
-			t.Errorf("field %q should be Required", name)
+		if !s.Optional || s.DefaultFunc == nil {
+			t.Errorf("field %q should be Optional with DefaultFunc", name)
 		}
 	}
 
-	defaults := map[string]interface{}{
-		"api_scope": "AT-PROD",
-		"endpoint":  "https://marketplace-apigateway.cancom.de",
-	}
-	for name, want := range defaults {
+	defaulted := []string{"api_scope", "endpoint"}
+	for _, name := range defaulted {
 		s, ok := p.Schema[name]
 		if !ok {
 			t.Errorf("missing schema field %q", name)
 			continue
 		}
-		if s.Default != want {
-			t.Errorf("field %q default = %v, want %v", name, s.Default, want)
+		if !s.Optional || s.DefaultFunc == nil {
+			t.Errorf("field %q should be Optional with DefaultFunc", name)
 		}
 	}
 
@@ -51,6 +48,63 @@ func TestProviderSchemaFields(t *testing.T) {
 	}
 	if _, ok := p.DataSourcesMap["cancom-marketplace_az_subscription"]; !ok {
 		t.Error("data source cancom-marketplace_az_subscription not registered")
+	}
+}
+
+func TestProviderConfigure_ReadsEnvironmentDefaults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[{"id":"user-env","email":"env@example.com"}]}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv(envAPIClientID, "id-env")
+	t.Setenv(envAPIClientSecret, "secret-env")
+	t.Setenv(envMarketplaceUserEmail, "env@example.com")
+	t.Setenv(envAPIScope, "ENV-SCOPE")
+	t.Setenv(envEndpoint, srv.URL)
+
+	p := Provider()
+	d := schemaResourceDataFromRaw(t, p.Schema, map[string]interface{}{})
+
+	prev := fetchToken
+	fetchToken = func(cfg *Config) (string, error) {
+		if cfg.ClientId != "id-env" || cfg.ClientSecret != "secret-env" {
+			t.Errorf("fetchToken got wrong env creds: %+v", cfg)
+		}
+		if cfg.Scope != "ENV-SCOPE" {
+			t.Errorf("scope = %q", cfg.Scope)
+		}
+		if cfg.Endpoint != srv.URL {
+			t.Errorf("endpoint = %q", cfg.Endpoint)
+		}
+		return "token-env", nil
+	}
+	defer func() { fetchToken = prev }()
+
+	out, err := providerConfigure(d)
+	if err != nil {
+		t.Fatalf("providerConfigure: %v", err)
+	}
+	cfg := out.(*Config)
+	if cfg.MarketplaceUserID != "user-env" {
+		t.Fatalf("MarketplaceUserID = %q", cfg.MarketplaceUserID)
+	}
+}
+
+func TestProviderConfigure_MissingRequiredValuesReportsEnvFallback(t *testing.T) {
+	for _, name := range []string{
+		envAPIClientID,
+		envAPIClientSecret,
+		envMarketplaceUserEmail,
+	} {
+		t.Setenv(name, "")
+	}
+
+	p := Provider()
+	d := schemaResourceDataFromRaw(t, p.Schema, map[string]interface{}{})
+	_, err := providerConfigure(d)
+	if err == nil || !strings.Contains(err.Error(), envAPIClientID) {
+		t.Fatalf("expected missing env hint, got %v", err)
 	}
 }
 

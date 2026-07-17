@@ -73,6 +73,7 @@ func TestResourceAzSubscriptionCreate_HappyPathWithRename(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	defer srv.Close()
 	getCalls := 0
+	var renamedSubscriptionID, renamedDisplayName string
 
 	fs.on(http.MethodPost, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("userUUID"); got != "uuid-1" {
@@ -100,33 +101,31 @@ func TestResourceAzSubscriptionCreate_HappyPathWithRename(t *testing.T) {
 		}
 		w.Write([]byte(`{"data":{"id":"sub-new","externalAccountId":"azure-new","user":{"id":"uuid-1"},"order":{"status":"ACTIVE","paymentPlan":{"id":172495},"paymentPlanId":172495},"futureApiField":{"keep":true}}}`))
 	})
-	fs.on(http.MethodPut, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
-		if getCalls < 2 {
-			t.Error("subscription update was sent before order status became ACTIVE")
-		}
-		var body map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode update body: %v", err)
-		}
-		if body["label"] != "My Sub" {
-			t.Errorf("label = %v", body["label"])
-		}
-		if _, ok := body["futureApiField"]; !ok {
-			t.Error("update dropped an unknown API field")
-		}
-		w.WriteHeader(http.StatusOK)
-	})
 
 	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
 		"display_name": "My Sub",
 	})
 
-	if err := resourceAzSubscriptionCreate(d, newTestConfigWithAzurePreflight(srv, func(_ context.Context, operations []azure.Operation) error {
-		if len(operations) != 1 || operations[0] != azure.OperationRenameSubscription {
-			t.Fatalf("preflight operations = %#v, want rename", operations)
-		}
-		return nil
-	})); err != nil {
+	if err := resourceAzSubscriptionCreate(d, newTestConfigWithAzureHooks(
+		srv,
+		func(_ context.Context, operations []azure.Operation) error {
+			if len(operations) != 1 || operations[0] != azure.OperationRenameSubscription {
+				t.Fatalf("preflight operations = %#v, want rename", operations)
+			}
+			return nil
+		},
+		func(_ context.Context, subscriptionID, displayName string) error {
+			if getCalls < 2 {
+				t.Error("subscription rename was sent before order status became ACTIVE")
+			}
+			renamedSubscriptionID = subscriptionID
+			renamedDisplayName = displayName
+			return nil
+		},
+		nil,
+		nil,
+		nil,
+	)); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if d.Id() != "sub-new" {
@@ -141,8 +140,11 @@ func TestResourceAzSubscriptionCreate_HappyPathWithRename(t *testing.T) {
 	if d.Get("payment_plan_id").(int) != azureSubscriptionPaymentPlanID {
 		t.Errorf("payment_plan_id = %d", d.Get("payment_plan_id"))
 	}
-	if fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}] != 1 {
-		t.Error("expected one rename PUT")
+	if renamedSubscriptionID != "azure-new" || renamedDisplayName != "My Sub" {
+		t.Errorf("rename = subscription %q display name %q", renamedSubscriptionID, renamedDisplayName)
+	}
+	if fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}] != 0 {
+		t.Error("did not expect Marketplace PUT for display_name")
 	}
 	if getCalls != 2 {
 		t.Errorf("subscription status GET calls = %d, want 2", getCalls)
@@ -231,11 +233,14 @@ func TestResourceAzSubscriptionCreate_AssignsOwnerRoleAfterActivation(t *testing
 			}
 			return nil
 		},
+		nil,
+		nil,
 		func(_ context.Context, subscriptionID, principalID string) error {
 			assignedSubscriptionID = subscriptionID
 			assignedPrincipalID = principalID
 			return nil
 		},
+		nil,
 	))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -330,16 +335,28 @@ func TestResourceAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	defer srv.Close()
 	fs.on(http.MethodGet, "/v1/subscriptions/sub-r", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":{"id":"sub-r","externalAccountId":"azure-r","label":"Friendly","user":{"id":"owner-1"},"order":{"paymentPlan":{"id":3}}}}`))
+		w.Write([]byte(`{"data":{"id":"sub-r","externalAccountId":"azure-r","label":"Marketplace Label","user":{"id":"owner-1"},"order":{"paymentPlan":{"id":3}}}}`))
 	})
 
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"display_name": "Tracked"})
 	d.SetId("sub-r")
 
-	if err := resourceAzSubscriptionRead(d, newTestConfig(srv)); err != nil {
+	if err := resourceAzSubscriptionRead(d, newTestConfigWithAzureHooks(
+		srv,
+		nil,
+		nil,
+		func(_ context.Context, subscriptionID string) (string, error) {
+			if subscriptionID != "azure-r" {
+				t.Fatalf("display name read subscription = %q", subscriptionID)
+			}
+			return "Azure Friendly", nil
+		},
+		nil,
+		nil,
+	)); err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if d.Get("display_name").(string) != "Friendly" {
+	if d.Get("display_name").(string) != "Azure Friendly" {
 		t.Errorf("display_name = %q", d.Get("display_name"))
 	}
 	if d.Get("payment_plan_id").(int) != 3 {
@@ -353,41 +370,13 @@ func TestResourceAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 	}
 }
 
-func TestResourceAzSubscriptionUpdate_RoundTripsDisplayNameThroughChangeSubscription(t *testing.T) {
+func TestResourceAzSubscriptionUpdate_RenamesThroughAzureWithoutMarketplaceMutation(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	defer srv.Close()
+	var renamedSubscriptionID, renamedDisplayName string
 
 	fs.on(http.MethodGet, "/v1/subscriptions/sub-u", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":{"id":"sub-u","label":"Old","user":{"id":"old-owner","href":"/users/old-owner"},"order":{"user":{"id":"old-owner","href":"/users/old-owner"},"paymentPlan":{"id":172495,"futurePlanField":"preserve"},"paymentPlanId":172495},"futureApiField":{"keep":true}}}`))
-	})
-	fs.on(http.MethodPut, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode update body: %v", err)
-		}
-		if body["label"] != "New" {
-			t.Errorf("label = %v", body["label"])
-		}
-		if _, ok := body["futureApiField"]; !ok {
-			t.Error("update dropped an unknown top-level field")
-		}
-		order := body["order"].(map[string]interface{})
-		if order["paymentPlanId"] != float64(azureSubscriptionPaymentPlanID) {
-			t.Errorf("paymentPlanId = %v", order["paymentPlanId"])
-		}
-		paymentPlan := order["paymentPlan"].(map[string]interface{})
-		if paymentPlan["id"] != float64(azureSubscriptionPaymentPlanID) || paymentPlan["futurePlanField"] != "preserve" {
-			t.Errorf("paymentPlan = %#v", paymentPlan)
-		}
-		orderUser := order["user"].(map[string]interface{})
-		if orderUser["id"] != "old-owner" || orderUser["href"] != "/users/old-owner" {
-			t.Errorf("order user = %#v", orderUser)
-		}
-		user := body["user"].(map[string]interface{})
-		if user["id"] != "old-owner" || user["href"] != "/users/old-owner" {
-			t.Errorf("user = %#v", user)
-		}
-		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"id":"sub-u","externalAccountId":"azure-u","label":"Old","user":{"id":"old-owner"},"order":{"paymentPlan":{"id":172495},"paymentPlanId":172495}}}`))
 	})
 
 	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
@@ -395,11 +384,30 @@ func TestResourceAzSubscriptionUpdate_RoundTripsDisplayNameThroughChangeSubscrip
 	})
 	d.SetId("sub-u")
 
-	if err := resourceAzSubscriptionUpdate(d, newTestConfig(srv)); err != nil {
+	if err := resourceAzSubscriptionUpdate(d, newTestConfigWithAzureHooks(
+		srv,
+		func(_ context.Context, operations []azure.Operation) error {
+			if len(operations) != 1 || operations[0] != azure.OperationRenameSubscription {
+				t.Fatalf("preflight operations = %#v, want rename", operations)
+			}
+			return nil
+		},
+		func(_ context.Context, subscriptionID, displayName string) error {
+			renamedSubscriptionID = subscriptionID
+			renamedDisplayName = displayName
+			return nil
+		},
+		nil,
+		nil,
+		nil,
+	)); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}] != 1 {
-		t.Errorf("expected one PUT, got %d", fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}])
+	if renamedSubscriptionID != "azure-u" || renamedDisplayName != "New" {
+		t.Fatalf("rename = subscription %q display name %q", renamedSubscriptionID, renamedDisplayName)
+	}
+	if fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}] != 0 {
+		t.Errorf("did not expect Marketplace PUT for display_name, got %d", fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}])
 	}
 }
 
@@ -425,11 +433,14 @@ func TestResourceAzSubscriptionUpdate_AssignsOwnerRoleWithoutMarketplaceMutation
 			}
 			return nil
 		},
+		nil,
+		nil,
 		func(_ context.Context, subscriptionID, principalID string) error {
 			assignedSubscriptionID = subscriptionID
 			assignedPrincipalID = principalID
 			return nil
 		},
+		nil,
 	))
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -449,7 +460,42 @@ func TestResourceAzSubscriptionDelete_NoAzureCredsErrors(t *testing.T) {
 		t.Fatalf("set subscription_id: %v", err)
 	}
 	err := resourceAzSubscriptionDelete(d, &Config{})
-	if err == nil || !strings.Contains(err.Error(), "cannot authenticate with Azure API") {
+	if err == nil || !strings.Contains(err.Error(), "Azure authentication is required") || !strings.Contains(err.Error(), string(azure.OperationCancelSubscription)) {
 		t.Fatalf("expected azure auth error, got %v", err)
+	}
+}
+
+func TestResourceAzSubscriptionDelete_PreflightsAndCancelsWithAzure(t *testing.T) {
+	_, srv := newFakeServer(t)
+	defer srv.Close()
+	var canceledSubscriptionID string
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
+	d.SetId("sub-d")
+	if err := d.Set("subscription_id", "azure-sub-d"); err != nil {
+		t.Fatalf("set subscription_id: %v", err)
+	}
+
+	err := resourceAzSubscriptionDelete(d, newTestConfigWithAzureHooks(
+		srv,
+		func(_ context.Context, operations []azure.Operation) error {
+			if len(operations) != 1 || operations[0] != azure.OperationCancelSubscription {
+				t.Fatalf("preflight operations = %#v, want cancel", operations)
+			}
+			return nil
+		},
+		nil,
+		nil,
+		nil,
+		func(_ context.Context, subscriptionID string) error {
+			canceledSubscriptionID = subscriptionID
+			return nil
+		},
+	))
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if canceledSubscriptionID != "azure-sub-d" {
+		t.Fatalf("canceled subscription = %q", canceledSubscriptionID)
 	}
 }
