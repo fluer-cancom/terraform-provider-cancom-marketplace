@@ -1,5 +1,5 @@
 ---
-page_title: "Azure Subscription – by CANCOM Marketplace"
+page_title: "Azure Subscription"
 subcategory: ""
 description: |-
   Manages an Azure Subscription within the Cancom Marketplace.
@@ -9,40 +9,66 @@ description: |-
 
 Manages an Azure Subscription within the Cancom Marketplace.
 
+Subscriptions are created for the Marketplace user configured on the provider with `marketplace_user_email`. The resource itself does not accept a user UUID.
+
+Before creating a subscription that uses Azure-backed properties, the provider verifies Azure authentication and reads the Default Management Group hierarchy settings. This prevents creating a Marketplace subscription when the Azure follow-up operation would fail. After creation, the provider polls `GET /v1/subscriptions/{subscriptionId}` every five seconds until `data.order.status` is `ACTIVE`. Follow-up changes are only sent after the subscription is ready. Creation times out after 30 minutes by default.
+
 > **Note:**  Destroying the resource will cancel the subscription. You can delete the subscription after a period of 7 days manually from the Azure Portal. After 30 days, the subscription will be deleted automatically.
 
 ## Example Usage
 
+### Minimal Configuration
+
+```terraform
+resource "cancom-marketplace_az_subscription" "example" {}
+```
+
+### Full Configuration
+
 ```terraform
 resource "cancom-marketplace_az_subscription" "example" {
-  order_number        = "123456789"
-  azure_owner_object_id = "12345678-1234-1234-1234-123456789012"
-  azure_discount = 0
-
-  display_name = "My new CANCOM Azure Subscription"
+  display_name          = "My new CANCOM Azure Subscription"
+  azure_owner_object_id = "11111111-1111-1111-1111-111111111111"
 }
 ```
 
 ## Attributes
 
-### Required
-
-- `azure_owner_object_id` (string) - The object ID of the principal, which recieves owner permissions after subscription creation.
-
 ### Optional
 
-- `order_number` (string) - The PO number of the subscription. (Change forces redeployment)
-- `azure_discount` (int) - The marketplace discount ID for the Azure Plan. (Change forces redeployment)
-- `display_name` (string) - The display name of the subscription.
+- `display_name` (string) - The display name of the subscription. If set during create, the provider performs Azure preflight before the Marketplace subscription is created.
+- `azure_owner_object_id` (string) - The Azure principal object ID that receives the `Owner` role on the created Azure subscription.
 
-> **Note:** If using `display_name`, the subscription will be renamed after creation by using the Azure API with the context of `az login` or by using the Service Principal configuration of the provider. Ensure that the principal used for `az login` or the Service Principal configuration of the provider has the necessary permissions to rename the subscription (either on management group level, or by assuring that the principal associated with `azure_owner_object_id` is used with the Azure CLI context).
+> **Note:** `display_name` is updated through the Azure Management API.
+> **Note:** `azure_owner_object_id` creates an Azure role assignment and requires Azure authentication plus sufficient permissions inherited from the Default Management Group.
+
+## Azure-Backed Behavior
+
+When `display_name` is set, the provider renames the Azure subscription through the Azure Management API after the Marketplace subscription is created and the Azure subscription ID is available.
+
+When `azure_owner_object_id` is set, the provider creates an Azure role assignment after the Marketplace subscription is created and the Azure subscription ID is available.
+
+The role assignment uses:
+
+- Scope: `/subscriptions/{subscription_id}`
+- Role: `Owner`
+- Principal: `azure_owner_object_id`
+
+Changing `display_name` or `azure_owner_object_id` only calls the Azure Management API. It does not modify the Marketplace subscription document.
+
+Destroying this resource runs an Azure subscription cancel operation through the Azure Management API after an Azure preflight check.
 
 ### Read-Only Attributes
 
-- `subscription_id` (string) - The subscription ID of the Azure subscription.
-- `request_id` (string) - The request ID of the Azure subscription.
+- `subscription_id` (string) - The Azure subscription ID.
+- `marketplace_subscription_id` (string) - The CANCOM Marketplace subscription ID returned; only used for Marketplace API operations.
+- `payment_plan_id` (int) - The payment plan ID (fixed on value `172495`).
 
 
 ## Import
 
-Import is not supported, as existing subscription can be managed by using AzureRM resource `azurerm_subscription`.
+To import a subscription use its CANCOM Marketplace subscription UUID (`data.id`), **not** its Azure subscription ID.
+
+```shell
+terraform import cancom-marketplace_az_subscription.example 00000000-0000-0000-0000-000000000000
+```

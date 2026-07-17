@@ -1,15 +1,16 @@
 terraform {
   required_providers {
     cancom-marketplace = {
-      source  = "fluer-cancom-dev/cancom-marketplace"
-      version = "0.1.7"
+      source  = "fluer-cancom/cancom-marketplace"
+      version = "2.0.0"
     }
   }
 }
 
 provider "cancom-marketplace" {
-  endpoint     = "https://cc-marketplace-ip.azure-api.net"
-  api_username = var.CC_MP_USERNAME
-  api_password = var.CC_MP_PASSWORD
-  country      = "AT"
+  api_client_id          = var.api_client_id
+  api_client_secret      = var.api_client_secret
+  api_scope              = var.api_scope
+  marketplace_user_email = var.marketplace_user_email
+  endpoint               = "https://marketplace-apigateway.cancom.de"
 }
