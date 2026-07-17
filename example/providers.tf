@@ -11,6 +11,6 @@ provider "cancom-marketplace" {
   api_client_id          = var.api_client_id
   api_client_secret      = var.api_client_secret
   api_scope              = var.api_scope
-  marketplace_user_email = "bernhard.fluer@cancom.com"
+  marketplace_user_email = var.marketplace_user_email
   endpoint               = "https://marketplace-apigateway.cancom.de"
 }
