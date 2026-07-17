@@ -1,9 +1,10 @@
 package main
 
 import (
+	tfprovider "terraform-provider-cancom-marketplace/internal/provider"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
-	tfprovider "terraform-provider-cancommarketplace/internal/provider"
 )
 
 func main() {

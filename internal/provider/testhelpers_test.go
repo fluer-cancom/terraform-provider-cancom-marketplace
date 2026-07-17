@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"terraform-provider-cancom-marketplace/internal/azure"
+	"terraform-provider-cancom-marketplace/internal/marketplace"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"terraform-provider-cancommarketplace/internal/azure"
-	"terraform-provider-cancommarketplace/internal/marketplace"
 )
 
 // schemaResourceDataFromRaw builds a ResourceData populated from a raw attribute

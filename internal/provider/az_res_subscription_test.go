@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"terraform-provider-cancommarketplace/internal/azure"
+	"terraform-provider-cancom-marketplace/internal/azure"
 )
 
 func useFastSubscriptionPolling(t *testing.T) {

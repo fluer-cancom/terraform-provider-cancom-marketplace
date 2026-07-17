@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"terraform-provider-cancommarketplace/internal/azure"
-	"terraform-provider-cancommarketplace/internal/marketplace"
+	"terraform-provider-cancom-marketplace/internal/azure"
+	"terraform-provider-cancom-marketplace/internal/marketplace"
 )
 
 func TestSubscriptionInfo_Success(t *testing.T) {

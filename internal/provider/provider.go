@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"terraform-provider-cancom-marketplace/internal/azure"
+	"terraform-provider-cancom-marketplace/internal/marketplace"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"terraform-provider-cancommarketplace/internal/azure"
-	"terraform-provider-cancommarketplace/internal/marketplace"
 )
 
 const (

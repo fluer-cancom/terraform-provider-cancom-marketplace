@@ -1,4 +1,4 @@
-module terraform-provider-cancommarketplace
+module terraform-provider-cancom-marketplace
 
 go 1.25.6
 

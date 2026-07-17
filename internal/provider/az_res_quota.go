@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"terraform-provider-cancom-marketplace/internal/marketplace"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"terraform-provider-cancommarketplace/internal/marketplace"
 )
 
 var quotaPollInterval = 10 * time.Second
