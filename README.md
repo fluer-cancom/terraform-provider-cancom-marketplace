@@ -16,7 +16,7 @@ To use the provider, you need to configure it with credentials. These are typica
 terraform {
   required_providers {
     cancom-marketplace = {
-      source = "fluer-cancom-dev/cancom-marketplace"
+      source = "fluer-cancom/cancom-marketplace"
     }
   }
 }
