@@ -14,6 +14,7 @@ description: |-
 
 - `api_client_id` (String) The API client ID for the Cancom Marketplace - received by OneTime Link
 - `api_client_secret` (String) The API client secret for the Cancom Marketplace - received by OneTime Link
+- `marketplace_user_email` (String) The marketplace user email address for which subscriptions are created.
 
 ### Optional
 

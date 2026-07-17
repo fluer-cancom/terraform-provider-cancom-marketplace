@@ -1,4 +1,4 @@
-package main
+package provider
 
 import (
 	"encoding/json"
@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"terraform-provider-cancommarketplace/internal/azure"
+	"terraform-provider-cancommarketplace/internal/marketplace"
 )
 
 func TestSubscriptionInfo_Success(t *testing.T) {
@@ -26,7 +29,7 @@ func TestSubscriptionInfo_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := subscriptionInfo("sub-1", newTestConfig(srv))
+	got, err := newTestConfig(srv).Marketplace.SubscriptionInfo("sub-1")
 	if err != nil {
 		t.Fatalf("subscriptionInfo: %v", err)
 	}
@@ -50,14 +53,14 @@ func TestSubscriptionInfo_Non200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := subscriptionInfo("x", newTestConfig(srv)); err == nil {
+	if _, err := newTestConfig(srv).Marketplace.SubscriptionInfo("x"); err == nil {
 		t.Fatal("expected error for 500 response")
 	}
 }
 
 func TestSubscriptionResponse_AcceptsStringPreviousOrderIDAndPreservesUnknownFields(t *testing.T) {
 	body := []byte(`{"data":{"id":"sub-1","order":{"previousOrder":{"id":"7922581"}},"futureApiField":{"keep":true}}}`)
-	sub, document, err := subscriptionResponse(body)
+	sub, document, err := marketplace.SubscriptionResponse(body)
 	if err != nil {
 		t.Fatalf("subscriptionResponse: %v", err)
 	}
@@ -87,7 +90,7 @@ func TestSubscriptionResponse_AcceptsRealAzureSubscriptionShape(t *testing.T) {
 			}
 		}
 	}`)
-	sub, _, err := subscriptionResponse(body)
+	sub, _, err := marketplace.SubscriptionResponse(body)
 	if err != nil {
 		t.Fatalf("subscriptionResponse: %v", err)
 	}
@@ -119,8 +122,8 @@ func TestChangeSubscription_PutsToCorrectURLWithBody(t *testing.T) {
 	defer srv.Close()
 
 	label := "renamed"
-	sub := CSPSubscription{Id: "sub-9", Label: &label}
-	if err := changeSubscription(sub, newTestConfig(srv)); err != nil {
+	sub := marketplace.Subscription{Id: "sub-9", Label: &label}
+	if err := newTestConfig(srv).Marketplace.ChangeSubscription(sub); err != nil {
 		t.Fatalf("changeSubscription: %v", err)
 	}
 
@@ -139,7 +142,7 @@ func TestChangeSubscription_PutsToCorrectURLWithBody(t *testing.T) {
 		t.Errorf("X-Correlation-ID = %q, want a numeric value", sawCorr)
 	}
 
-	var roundTrip CSPSubscription
+	var roundTrip marketplace.Subscription
 	if err := json.Unmarshal(sawBody, &roundTrip); err != nil {
 		t.Fatalf("body not json: %v\nraw=%s", err, sawBody)
 	}
@@ -154,15 +157,14 @@ func TestChangeSubscription_Non200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := changeSubscription(CSPSubscription{Id: "x"}, newTestConfig(srv))
+	err := newTestConfig(srv).Marketplace.ChangeSubscription(marketplace.Subscription{Id: "x"})
 	if err == nil || !strings.Contains(err.Error(), "failed to update subscription") {
 		t.Fatalf("expected update error, got %v", err)
 	}
 }
 
 func TestCancelSubscription_NoAzureCredsErrors(t *testing.T) {
-	cfg := &Config{} // AzureAuthCtx nil
-	err := cancelSubscription("sub-1", cfg)
+	err := (&azure.Client{}).CancelSubscription("sub-1")
 	if err == nil || !strings.Contains(err.Error(), "cannot authenticate with Azure API") {
 		t.Fatalf("expected azure auth error, got %v", err)
 	}

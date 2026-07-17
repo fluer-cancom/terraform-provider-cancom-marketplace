@@ -22,14 +22,15 @@ terraform {
 }
 
 provider "cancom-marketplace" {
-  api_client_id     = "your-api-client-id"
-  api_client_secret = "your-api-client-secret"
-  api_scope         = "AT-PROD" # Optional, defaults to AT-PROD
-  # endpoint        = "https://marketplace-apigateway.cancom.de" # Optional, defaults to production
+  api_client_id          = "your-api-client-id"
+  api_client_secret      = "your-api-client-secret"
+  marketplace_user_email = "user@example.com"
+  api_scope              = "AT-PROD" # Optional, defaults to AT-PROD
+  # endpoint             = "https://marketplace-apigateway.cancom.de" # Optional, defaults to production
 
-  azure_client_id     = "your-azure-client-id" # Optional; required for cancellation unless `az login` supplies credentials
-  azure_client_secret = "your-azure-client-secret" # Optional; required for cancellation unless `az login` supplies credentials
-  azure_tenant_id     = "your-azure-tenant-id" # Optional; required for cancellation unless `az login` supplies credentials
+  azure_client_id     = "your-azure-client-id" # Optional; required for Azure-backed operations unless `az login` supplies credentials
+  azure_client_secret = "your-azure-client-secret" # Optional; required for Azure-backed operations unless `az login` supplies credentials
+  azure_tenant_id     = "your-azure-tenant-id" # Optional; required for Azure-backed operations unless `az login` supplies credentials
 }
 ```
 
@@ -39,6 +40,7 @@ When using a Terraform CLI `dev_overrides` entry for local provider development,
 
 *   `api_client_id` (String, Required) The API client ID for the Cancom Marketplace.
 *   `api_client_secret` (String, Required) The API client secret for the Cancom Marketplace.
+*   `marketplace_user_email` (String, Required) The email address of the CANCOM Marketplace user for which subscriptions are created. The provider resolves it through `/v1/users` during initialization.
 *   `api_scope` (String, Optional) The API scope for the Cancom Marketplace. Defaults to `AT-PROD`.
 *   `endpoint` (String, Optional) The API endpoint. Defaults to `https://marketplace-apigateway.cancom.de`.
 *   `azure_client_id` (String, Optional) The Azure client ID for the customers tenant. – alternatively use `az login`
@@ -51,21 +53,20 @@ When using a Terraform CLI `dev_overrides` entry for local provider development,
 
 This resource allows you to create and manage Azure Subscriptions.
 
-After creation, the provider polls the Marketplace subscription every five seconds until `data.order.status` is `ACTIVE`. Azure-backed follow-up operations such as setting `display_name` only run after that point. The default create timeout is 30 minutes and can be overridden with a Terraform `timeouts` block.
+Before creating a subscription that uses Azure-backed properties, the provider verifies Azure authentication and reads the Default Management Group hierarchy settings. This prevents creating a Marketplace subscription when the Azure follow-up operation would fail. After creation, the provider polls the Marketplace subscription every five seconds until `data.order.status` is `ACTIVE`. Azure-backed follow-up operations only run after that point. The default create timeout is 30 minutes and can be overridden with a Terraform `timeouts` block.
 
 #### Example Usage
 
 ```hcl
 resource "cancom-marketplace_az_subscription" "example" {
-  user_uuid    = "00000000-0000-0000-0000-000000000000"
-  display_name = "My new CANCOM Azure Subscription"
+  display_name          = "My new CANCOM Azure Subscription"
+  azure_owner_object_id = "11111111-1111-1111-1111-111111111111"
 }
 ```
 
 #### Argument Reference
 
-*   `user_uuid` (String, Required) The marketplace user UUID that will own the created subscription.
-*   `azure_owner_object_id` (String, Optional, Deprecated) Legacy alias for the marketplace user UUID; it is not an Azure AD object ID.
+*   `azure_owner_object_id` (String, Optional) The Azure principal object ID that receives the `Owner` role on the created Azure subscription. Requires Azure authentication and permissions inherited from the Default Management Group.
 *   `display_name` (String, Optional) The display name of the subscription. – if set, usage of `az login` command or `azure_client_id`, `azure_client_secret` and `azure_tenant_id` is required.
 
 #### Attribute Reference

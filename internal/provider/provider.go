@@ -1,4 +1,4 @@
-package main
+package provider
 
 import (
 	"encoding/json"
@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"terraform-provider-cancommarketplace/internal/azure"
+	"terraform-provider-cancommarketplace/internal/marketplace"
 )
 
 func Provider() *schema.Provider {
@@ -41,6 +41,11 @@ func Provider() *schema.Provider {
 				Description: "The API scope for the Cancom Marketplace - default is 'AT-PROD'",
 				Default:     "AT-PROD",
 			},
+			"marketplace_user_email": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "The marketplace user email address for which subscriptions are created.",
+			},
 			"azure_client_id": {
 				Type:        schema.TypeString,
 				Optional:    true,
@@ -69,16 +74,19 @@ func Provider() *schema.Provider {
 }
 
 type Config struct {
-	Endpoint          string
-	ClientId          string
-	ClientSecret      string
-	Scope             string
-	CCMPApiToken      string
-	AzureClientId     string
-	AzureClientSecret string
-	AzureTenantId     string
-	AzureAuthCtx      azcore.TokenCredential
-	HTTPClient        *http.Client
+	Endpoint             string
+	ClientId             string
+	ClientSecret         string
+	Scope                string
+	CCMPApiToken         string
+	AzureClientId        string
+	AzureClientSecret    string
+	AzureTenantId        string
+	MarketplaceUserEmail string
+	MarketplaceUserID    string
+	HTTPClient           *http.Client
+	Marketplace          *marketplace.Client
+	Azure                *azure.Client
 }
 
 // fetchToken is exposed as a package var so tests can stub the OAuth call.
@@ -126,14 +134,15 @@ func defaultFetchToken(cfg *Config) (string, error) {
 
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 	cfg := &Config{
-		Endpoint:          d.Get("endpoint").(string),
-		ClientId:          d.Get("api_client_id").(string),
-		ClientSecret:      d.Get("api_client_secret").(string),
-		Scope:             d.Get("api_scope").(string),
-		AzureClientId:     d.Get("azure_client_id").(string),
-		AzureClientSecret: d.Get("azure_client_secret").(string),
-		AzureTenantId:     d.Get("azure_tenant_id").(string),
-		HTTPClient:        &http.Client{Timeout: 120 * time.Second},
+		Endpoint:             d.Get("endpoint").(string),
+		ClientId:             d.Get("api_client_id").(string),
+		ClientSecret:         d.Get("api_client_secret").(string),
+		Scope:                d.Get("api_scope").(string),
+		AzureClientId:        d.Get("azure_client_id").(string),
+		AzureClientSecret:    d.Get("azure_client_secret").(string),
+		AzureTenantId:        d.Get("azure_tenant_id").(string),
+		MarketplaceUserEmail: d.Get("marketplace_user_email").(string),
+		HTTPClient:           &http.Client{Timeout: 120 * time.Second},
 	}
 
 	azID := cfg.AzureClientId
@@ -146,15 +155,15 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		if !allAzure {
 			return nil, fmt.Errorf("if any of azure_client_id, azure_client_secret, azure_tenant_id is set, all three must be set")
 		}
-		cred, err := azidentity.NewClientSecretCredential(azTenant, azID, azSecret, nil)
+		cred, err := azure.NewClientSecretCredential(azTenant, azID, azSecret)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build Azure client-secret credential: %w", err)
 		}
-		cfg.AzureAuthCtx = cred
+		cfg.Azure = &azure.Client{Credential: cred, HTTPClient: cfg.HTTPClient}
 	} else {
 		// Best-effort: fall back to default azure CLI / env credentials.
-		if cred, err := azidentity.NewDefaultAzureCredential(nil); err == nil {
-			cfg.AzureAuthCtx = cred
+		if cred, err := azure.NewDefaultCredential(); err == nil {
+			cfg.Azure = &azure.Client{Credential: cred, HTTPClient: cfg.HTTPClient}
 		}
 	}
 
@@ -163,5 +172,15 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		return nil, err
 	}
 	cfg.CCMPApiToken = tok
+	cfg.Marketplace = &marketplace.Client{
+		Endpoint:   cfg.Endpoint,
+		Token:      tok,
+		HTTPClient: cfg.HTTPClient,
+	}
+	userID, err := cfg.Marketplace.UserIDByEmail(cfg.MarketplaceUserEmail)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MarketplaceUserID = userID
 	return cfg, nil
 }

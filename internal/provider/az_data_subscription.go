@@ -1,4 +1,4 @@
-package main
+package provider
 
 import (
 	"fmt"
@@ -44,7 +44,7 @@ func dataAzSubscriptionRead(d *schema.ResourceData, m interface{}) error {
 	cfg := m.(*Config)
 	marketplaceSubscriptionID := d.Get("marketplace_subscription_id").(string)
 
-	sub, err := subscriptionInfo(marketplaceSubscriptionID, cfg)
+	sub, err := cfg.Marketplace.SubscriptionInfo(marketplaceSubscriptionID)
 	if err != nil {
 		return fmt.Errorf("failed to read Azure subscription info: %w", err)
 	}

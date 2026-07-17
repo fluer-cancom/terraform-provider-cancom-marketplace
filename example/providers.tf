@@ -8,8 +8,9 @@ terraform {
 }
 
 provider "cancom-marketplace" {
-  api_client_id     = var.api_client_id
-  api_client_secret = var.api_client_secret
-  api_scope         = var.api_scope
-  endpoint          = "https://marketplace-apigateway.cancom.de"
+  api_client_id          = var.api_client_id
+  api_client_secret      = var.api_client_secret
+  api_scope              = var.api_scope
+  marketplace_user_email = "bernhard.fluer@cancom.com"
+  endpoint               = "https://marketplace-apigateway.cancom.de"
 }

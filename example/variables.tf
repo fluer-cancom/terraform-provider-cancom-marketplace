@@ -11,3 +11,7 @@ variable "api_scope" {
   type    = string
   default = "AT-PROD"
 }
+
+variable "marketplace_user_email" {
+  type = string
+}

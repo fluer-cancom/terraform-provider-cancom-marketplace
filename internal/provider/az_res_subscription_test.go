@@ -1,12 +1,16 @@
-package main
+package provider
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"terraform-provider-cancommarketplace/internal/azure"
 )
 
 func useFastSubscriptionPolling(t *testing.T) {
@@ -21,11 +25,8 @@ func TestResourceAzSubscription_Schema(t *testing.T) {
 	if err := r.InternalValidate(nil, true); err != nil {
 		t.Fatalf("schema invalid: %v", err)
 	}
-	if !r.Schema["user_uuid"].Required {
-		t.Error("user_uuid should be Required")
-	}
-	if !r.Schema["user_uuid"].ForceNew {
-		t.Error("user_uuid should be ForceNew")
+	if _, ok := r.Schema["user_uuid"]; ok {
+		t.Error("user_uuid should not be part of the subscription resource schema")
 	}
 	if !r.Schema["subscription_id"].Computed {
 		t.Error("subscription_id should be Computed")
@@ -117,11 +118,15 @@ func TestResourceAzSubscriptionCreate_HappyPathWithRename(t *testing.T) {
 	})
 
 	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
-		"user_uuid":    "uuid-1",
 		"display_name": "My Sub",
 	})
 
-	if err := resourceAzSubscriptionCreate(d, newTestConfig(srv)); err != nil {
+	if err := resourceAzSubscriptionCreate(d, newTestConfigWithAzurePreflight(srv, func(_ context.Context, operations []azure.Operation) error {
+		if len(operations) != 1 || operations[0] != azure.OperationRenameSubscription {
+			t.Fatalf("preflight operations = %#v, want rename", operations)
+		}
+		return nil
+	})); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if d.Id() != "sub-new" {
@@ -144,6 +149,105 @@ func TestResourceAzSubscriptionCreate_HappyPathWithRename(t *testing.T) {
 	}
 }
 
+func TestResourceAzSubscriptionCreate_DisplayNameRequiresAzurePreflightBeforePost(t *testing.T) {
+	fs, srv := newFakeServer(t)
+	defer srv.Close()
+	fs.on(http.MethodPost, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		t.Error("subscription create POST must not run when Azure preflight fails")
+		w.WriteHeader(http.StatusCreated)
+	})
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
+		"display_name": "My Sub",
+	})
+	err := resourceAzSubscriptionCreate(d, newTestConfig(srv))
+	if err == nil {
+		t.Fatal("expected Azure preflight error, got nil")
+	}
+	for _, want := range []string{"az login", "azure_client_id", "remove", "display_name"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, expected mention of %q", err.Error(), want)
+		}
+	}
+	if fs.calls[routeKey{http.MethodPost, "/v1/subscriptions"}] != 0 {
+		t.Fatal("subscription create POST ran despite missing Azure auth")
+	}
+	if d.Id() != "" {
+		t.Fatalf("resource ID should stay empty on preflight failure, got %q", d.Id())
+	}
+}
+
+func TestResourceAzSubscriptionCreate_DisplayNamePermissionPreflightBlocksPost(t *testing.T) {
+	fs, srv := newFakeServer(t)
+	defer srv.Close()
+	fs.on(http.MethodPost, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		t.Error("subscription create POST must not run when Azure permission preflight fails")
+		w.WriteHeader(http.StatusCreated)
+	})
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
+		"display_name": "My Sub",
+	})
+	err := resourceAzSubscriptionCreate(d, newTestConfigWithAzurePreflight(srv, func(_ context.Context, operations []azure.Operation) error {
+		if len(operations) != 1 || operations[0] != azure.OperationRenameSubscription {
+			t.Fatalf("preflight operations = %#v, want rename", operations)
+		}
+		return errors.New("missing rename permission")
+	}))
+	if err == nil || !strings.Contains(err.Error(), "missing rename permission") {
+		t.Fatalf("expected permission preflight error, got %v", err)
+	}
+	if fs.calls[routeKey{http.MethodPost, "/v1/subscriptions"}] != 0 {
+		t.Fatal("subscription create POST ran despite failed Azure permission preflight")
+	}
+	if d.Id() != "" {
+		t.Fatalf("resource ID should stay empty on preflight failure, got %q", d.Id())
+	}
+}
+
+func TestResourceAzSubscriptionCreate_AssignsOwnerRoleAfterActivation(t *testing.T) {
+	useFastSubscriptionPolling(t)
+	fs, srv := newFakeServer(t)
+	defer srv.Close()
+	var assignedSubscriptionID, assignedPrincipalID string
+
+	fs.on(http.MethodPost, "/v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{"id":"sub-owner","externalAccountId":"azure-owner","user":{"id":"uuid-1"},"order":{"paymentPlan":{"id":172495}}}}`))
+	})
+	fs.on(http.MethodGet, "/v1/subscriptions/sub-owner", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":{"id":"sub-owner","externalAccountId":"azure-owner","user":{"id":"uuid-1"},"order":{"status":"ACTIVE","paymentPlan":{"id":172495}}}}`))
+	})
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
+		"azure_owner_object_id": "principal-1",
+	})
+
+	err := resourceAzSubscriptionCreate(d, newTestConfigWithAzureHooks(
+		srv,
+		func(_ context.Context, operations []azure.Operation) error {
+			if len(operations) != 1 || operations[0] != azure.OperationAssignOwnerRole {
+				t.Fatalf("preflight operations = %#v, want owner role assignment", operations)
+			}
+			return nil
+		},
+		func(_ context.Context, subscriptionID, principalID string) error {
+			assignedSubscriptionID = subscriptionID
+			assignedPrincipalID = principalID
+			return nil
+		},
+	))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if assignedSubscriptionID != "azure-owner" || assignedPrincipalID != "principal-1" {
+		t.Fatalf("owner assignment = subscription %q principal %q", assignedSubscriptionID, assignedPrincipalID)
+	}
+	if d.Get("azure_owner_object_id").(string) != "principal-1" {
+		t.Fatalf("azure_owner_object_id = %q", d.Get("azure_owner_object_id"))
+	}
+}
+
 func TestResourceAzSubscriptionCreate_NoRenameWhenDisplayNameEmpty(t *testing.T) {
 	useFastSubscriptionPolling(t)
 	fs, srv := newFakeServer(t)
@@ -156,7 +260,7 @@ func TestResourceAzSubscriptionCreate_NoRenameWhenDisplayNameEmpty(t *testing.T)
 		w.Write([]byte(`{"data":{"id":"sub-x","externalAccountId":"azure-x","user":{"id":"uuid-1"},"order":{"status":"ACTIVE","paymentPlan":{"id":172495}}}}`))
 	})
 
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "uuid-1"})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
 	if err := resourceAzSubscriptionCreate(d, newTestConfig(srv)); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -181,7 +285,7 @@ func TestResourceAzSubscriptionCreate_AcceptsBareObjectResponse(t *testing.T) {
 		w.Write([]byte(`{"data":{"id":"sub-bare","externalAccountId":"azure-bare","user":{"id":"uuid-1"},"order":{"status":"ACTIVE","paymentPlan":{"id":172495}}}}`))
 	})
 
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "uuid-1"})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
 	if err := resourceAzSubscriptionCreate(d, newTestConfig(srv)); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -198,7 +302,7 @@ func TestResourceAzSubscriptionCreate_FailsLoudlyOnEmptyId(t *testing.T) {
 		w.Write([]byte(`{"data":{}}`))
 	})
 
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "u"})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
 	err := resourceAzSubscriptionCreate(d, newTestConfig(srv))
 	if err == nil || !strings.Contains(err.Error(), "no id") {
 		t.Fatalf("expected 'no id' error, got %v", err)
@@ -215,7 +319,7 @@ func TestResourceAzSubscriptionCreate_PostFailureBubblesUp(t *testing.T) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	})
 
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "u"})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
 	err := resourceAzSubscriptionCreate(d, newTestConfig(srv))
 	if err == nil || !strings.Contains(err.Error(), "failed to create Azure subscription") {
 		t.Fatalf("expected create error, got %v", err)
@@ -229,7 +333,7 @@ func TestResourceAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 		w.Write([]byte(`{"data":{"id":"sub-r","externalAccountId":"azure-r","label":"Friendly","user":{"id":"owner-1"},"order":{"paymentPlan":{"id":3}}}}`))
 	})
 
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "ignored"})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
 	d.SetId("sub-r")
 
 	if err := resourceAzSubscriptionRead(d, newTestConfig(srv)); err != nil {
@@ -237,9 +341,6 @@ func TestResourceAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 	}
 	if d.Get("display_name").(string) != "Friendly" {
 		t.Errorf("display_name = %q", d.Get("display_name"))
-	}
-	if d.Get("azure_owner_object_id").(string) != "owner-1" {
-		t.Errorf("azure_owner_object_id = %q", d.Get("azure_owner_object_id"))
 	}
 	if d.Get("payment_plan_id").(int) != 3 {
 		t.Errorf("payment_plan_id = %d", d.Get("payment_plan_id"))
@@ -252,7 +353,7 @@ func TestResourceAzSubscriptionRead_PopulatesAttributes(t *testing.T) {
 	}
 }
 
-func TestResourceAzSubscriptionUpdate_RoundTripsThroughChangeSubscription(t *testing.T) {
+func TestResourceAzSubscriptionUpdate_RoundTripsDisplayNameThroughChangeSubscription(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	defer srv.Close()
 
@@ -279,20 +380,18 @@ func TestResourceAzSubscriptionUpdate_RoundTripsThroughChangeSubscription(t *tes
 			t.Errorf("paymentPlan = %#v", paymentPlan)
 		}
 		orderUser := order["user"].(map[string]interface{})
-		if orderUser["id"] != "new-owner" || orderUser["href"] != "/users/old-owner" {
+		if orderUser["id"] != "old-owner" || orderUser["href"] != "/users/old-owner" {
 			t.Errorf("order user = %#v", orderUser)
 		}
 		user := body["user"].(map[string]interface{})
-		if user["id"] != "new-owner" || user["href"] != "/users/old-owner" {
+		if user["id"] != "old-owner" || user["href"] != "/users/old-owner" {
 			t.Errorf("user = %#v", user)
 		}
 		w.WriteHeader(http.StatusOK)
 	})
 
 	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
-		"user_uuid":             "u",
-		"display_name":          "New",
-		"azure_owner_object_id": "new-owner",
+		"display_name": "New",
 	})
 	d.SetId("sub-u")
 
@@ -304,8 +403,47 @@ func TestResourceAzSubscriptionUpdate_RoundTripsThroughChangeSubscription(t *tes
 	}
 }
 
+func TestResourceAzSubscriptionUpdate_AssignsOwnerRoleWithoutMarketplaceMutation(t *testing.T) {
+	fs, srv := newFakeServer(t)
+	defer srv.Close()
+	var assignedSubscriptionID, assignedPrincipalID string
+
+	fs.on(http.MethodGet, "/v1/subscriptions/sub-u", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":{"id":"sub-u","externalAccountId":"azure-u","label":"Old","user":{"id":"old-owner"},"order":{"paymentPlan":{"id":172495},"paymentPlanId":172495}}}`))
+	})
+
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{
+		"azure_owner_object_id": "new-owner",
+	})
+	d.SetId("sub-u")
+
+	err := resourceAzSubscriptionUpdate(d, newTestConfigWithAzureHooks(
+		srv,
+		func(_ context.Context, operations []azure.Operation) error {
+			if len(operations) != 1 || operations[0] != azure.OperationAssignOwnerRole {
+				t.Fatalf("preflight operations = %#v, want owner role assignment", operations)
+			}
+			return nil
+		},
+		func(_ context.Context, subscriptionID, principalID string) error {
+			assignedSubscriptionID = subscriptionID
+			assignedPrincipalID = principalID
+			return nil
+		},
+	))
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if assignedSubscriptionID != "azure-u" || assignedPrincipalID != "new-owner" {
+		t.Fatalf("owner assignment = subscription %q principal %q", assignedSubscriptionID, assignedPrincipalID)
+	}
+	if fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}] != 0 {
+		t.Errorf("did not expect Marketplace PUT for owner assignment, got %d", fs.calls[routeKey{http.MethodPut, "/v1/subscriptions"}])
+	}
+}
+
 func TestResourceAzSubscriptionDelete_NoAzureCredsErrors(t *testing.T) {
-	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{"user_uuid": "u"})
+	d := schemaResourceDataFromRaw(t, resourceAzSubscription().Schema, map[string]interface{}{})
 	d.SetId("sub-d")
 	if err := d.Set("subscription_id", "azure-sub-d"); err != nil {
 		t.Fatalf("set subscription_id: %v", err)

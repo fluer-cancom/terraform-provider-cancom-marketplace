@@ -9,7 +9,7 @@ description: |-
 
 Manages an Azure Subscription within the Cancom Marketplace.
 
-After creation, the provider polls `GET /v1/subscriptions/{subscriptionId}` every five seconds until `data.order.status` is `ACTIVE`. Follow-up changes are only sent after the subscription is ready. Creation times out after 30 minutes by default.
+Before creating a subscription that uses Azure-backed properties, the provider verifies Azure authentication and reads the Default Management Group hierarchy settings. This prevents creating a Marketplace subscription when the Azure follow-up operation would fail. After creation, the provider polls `GET /v1/subscriptions/{subscriptionId}` every five seconds until `data.order.status` is `ACTIVE`. Follow-up changes are only sent after the subscription is ready. Creation times out after 30 minutes by default.
 
 > **Note:**  Destroying the resource will cancel the subscription. You can delete the subscription after a period of 7 days manually from the Azure Portal. After 30 days, the subscription will be deleted automatically.
 
@@ -17,23 +17,20 @@ After creation, the provider polls `GET /v1/subscriptions/{subscriptionId}` ever
 
 ```terraform
 resource "cancom-marketplace_az_subscription" "example" {
-  user_uuid    = "12345678-1234-1234-1234-123456789012"
-  display_name = "My new CANCOM Azure Subscription"
+  display_name          = "My new CANCOM Azure Subscription"
+  azure_owner_object_id = "11111111-1111-1111-1111-111111111111"
 }
 ```
 
 ## Attributes
 
-### Required
-
-- `user_uuid` (string) - The marketplace user UUID for which the subscription is created.
-
 ### Optional
 
 - `display_name` (string) - The display name of the subscription.
-- `azure_owner_object_id` (string) - Deprecated legacy alias for the marketplace user UUID. It is not an Azure AD object ID.
+- `azure_owner_object_id` (string) - The Azure principal object ID that receives the `Owner` role on the created Azure subscription.
 
 > **Note:** `display_name` is updated through the CANCOM Marketplace subscription API.
+> **Note:** `azure_owner_object_id` creates an Azure role assignment and requires Azure authentication plus sufficient permissions inherited from the Default Management Group.
 
 ### Read-Only Attributes
 

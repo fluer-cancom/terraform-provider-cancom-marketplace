@@ -1,6 +1,6 @@
-package main
+package marketplace
 
-type CSPSubscription struct {
+type Subscription struct {
 	Id                          string        `json:"id"`
 	ParentSubscriptionId        *string       `json:"parentSubscriptionId"`
 	CreationDate                int64         `json:"creationDate"`

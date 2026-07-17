@@ -1,4 +1,4 @@
-package main
+package provider
 
 import (
 	"net/http"
@@ -16,7 +16,7 @@ func TestProviderInternalValidate(t *testing.T) {
 func TestProviderSchemaFields(t *testing.T) {
 	p := Provider()
 
-	required := []string{"api_client_id", "api_client_secret"}
+	required := []string{"api_client_id", "api_client_secret", "marketplace_user_email"}
 	for _, name := range required {
 		s, ok := p.Schema[name]
 		if !ok {
@@ -57,9 +57,10 @@ func TestProviderSchemaFields(t *testing.T) {
 func TestProviderConfigure_PartialAzureCredsRejected(t *testing.T) {
 	p := Provider()
 	raw := map[string]interface{}{
-		"api_client_id":     "id",
-		"api_client_secret": "secret",
-		"azure_client_id":   "az-id",
+		"api_client_id":          "id",
+		"api_client_secret":      "secret",
+		"marketplace_user_email": "user@example.com",
+		"azure_client_id":        "az-id",
 		// missing tenant + secret
 	}
 	d := schemaResourceDataFromRaw(t, p.Schema, raw)
@@ -78,11 +79,23 @@ func TestProviderConfigure_PartialAzureCredsRejected(t *testing.T) {
 }
 
 func TestProviderConfigure_FetchesTokenAndPopulatesConfig(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/users" {
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		w.Write([]byte(`{"data":[{"id":"user-1","email":"user@example.com"}]}`))
+	}))
+	defer srv.Close()
+
 	p := Provider()
 	raw := map[string]interface{}{
-		"api_client_id":     "id",
-		"api_client_secret": "secret",
-		"endpoint":          "https://example.test",
+		"api_client_id":          "id",
+		"api_client_secret":      "secret",
+		"marketplace_user_email": "user@example.com",
+		"endpoint":               srv.URL,
 	}
 	d := schemaResourceDataFromRaw(t, p.Schema, raw)
 
@@ -91,7 +104,7 @@ func TestProviderConfigure_FetchesTokenAndPopulatesConfig(t *testing.T) {
 		if cfg.ClientId != "id" || cfg.ClientSecret != "secret" {
 			t.Errorf("fetchToken got wrong creds: %+v", cfg)
 		}
-		if cfg.Endpoint != "https://example.test" {
+		if cfg.Endpoint != srv.URL {
 			t.Errorf("fetchToken got wrong endpoint: %s", cfg.Endpoint)
 		}
 		return "token-123", nil
@@ -114,6 +127,55 @@ func TestProviderConfigure_FetchesTokenAndPopulatesConfig(t *testing.T) {
 	}
 	if cfg.HTTPClient == nil {
 		t.Error("HTTPClient should be non-nil")
+	}
+	if cfg.MarketplaceUserID != "user-1" {
+		t.Errorf("MarketplaceUserID = %q, want user-1", cfg.MarketplaceUserID)
+	}
+}
+
+func TestProviderConfigure_UserEmailNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[{"id":"user-1","email":"someone@example.com"}]}`))
+	}))
+	defer srv.Close()
+
+	p := Provider()
+	d := schemaResourceDataFromRaw(t, p.Schema, map[string]interface{}{
+		"api_client_id":          "id",
+		"api_client_secret":      "secret",
+		"marketplace_user_email": "user@example.com",
+		"endpoint":               srv.URL,
+	})
+	prev := fetchToken
+	fetchToken = func(*Config) (string, error) { return "token-123", nil }
+	defer func() { fetchToken = prev }()
+
+	_, err := providerConfigure(d)
+	if err == nil || !strings.Contains(err.Error(), "User not found in CANCOM Marketplace. Contact your Enterprise Administrator") {
+		t.Fatalf("expected user not found error, got %v", err)
+	}
+}
+
+func TestProviderConfigure_UserEmailAmbiguous(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[{"id":"user-1","email":"user@example.com"},{"id":"user-2","email":"USER@example.com"}]}`))
+	}))
+	defer srv.Close()
+
+	p := Provider()
+	d := schemaResourceDataFromRaw(t, p.Schema, map[string]interface{}{
+		"api_client_id":          "id",
+		"api_client_secret":      "secret",
+		"marketplace_user_email": "user@example.com",
+		"endpoint":               srv.URL,
+	})
+	prev := fetchToken
+	fetchToken = func(*Config) (string, error) { return "token-123", nil }
+	defer func() { fetchToken = prev }()
+
+	_, err := providerConfigure(d)
+	if err == nil || !strings.Contains(err.Error(), "User is ambigous in CANCOM Marketplace. Contact your Enterprise Administrator") {
+		t.Fatalf("expected ambiguous user error, got %v", err)
 	}
 }
 
