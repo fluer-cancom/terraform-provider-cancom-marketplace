@@ -1,6 +1,5 @@
 resource "cancom-marketplace_az_subscription" "example" {
-  display_name          = "CC Test Subscription"
-  azure_owner_object_id = "00000000-0000-0000-0000-000000000000"
+  display_name = "CC Test Subscription"
 }
 
 output "subscription_id" {
